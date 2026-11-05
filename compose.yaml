@@ -1,0 +1,49 @@
+# Frontend en contenedor. La API (Laravel) vive en otro repositorio.
+#
+#   docker compose up --build        |  podman compose up --build
+#
+# API_UPSTREAM apunta a la API sin barra final:
+#   - Podman: http://host.containers.internal:8000 (por defecto)
+#   - Docker: http://host.docker.internal:8000 (resuelto con extra_hosts)
+#   - Con la API en este compose: http://api:8000
+
+name: farma-sistema-web
+
+services:
+  web:
+    build:
+      context: .
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api/v1}
+        VITE_API_MOCKS: ${VITE_API_MOCKS:-no}
+    image: farma-sistema-web:local
+    ports:
+      - '${WEB_PORT:-8080}:8080'
+    environment:
+      API_UPSTREAM: ${API_UPSTREAM:-http://host.containers.internal:8000}
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8080/healthz']
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Cuando exista la imagen de la API:
+    # depends_on:
+    #   api:
+    #     condition: service_healthy
+
+  # api:
+  #   image: ghcr.io/<org>/farma-sistema-api:<tag>
+  #   env_file: .env.api
+  #   healthcheck:
+  #     test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:8000/up']
+  #     interval: 15s
+  #     timeout: 3s
+  #     retries: 5

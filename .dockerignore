@@ -1,0 +1,29 @@
+# Dependencias y salidas locales
+node_modules
+**/node_modules
+dist
+coverage
+*.log
+
+# Git, CI y hooks
+.git
+.gitignore
+.github
+.vite-hooks
+
+# Variables de entorno: nunca entran en la imagen
+.env
+.env.*
+!.env.example
+
+# Editor y herramientas locales
+.vscode
+.idea
+.DS_Store
+*.md
+
+# Infraestructura que no forma parte del build
+compose.yaml
+compose.*.yaml
+Dockerfile
+.dockerignore
