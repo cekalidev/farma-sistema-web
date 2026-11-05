@@ -1,6 +1,6 @@
 // Dispensaciones. Reales (fieles al backend): previsualizar, crear (idempotente), autorizar,
-// rechazar y detalle. Faltante: listado `GET /dispensaciones` (contrato v0.13.0: filas con
-// `dispensado_por {id, nombre}`, sin `paciente` ni `detalles`).
+// rechazar y detalle. Listado `GET /dispensaciones`, publicado desde v0.13.0 (filas con
+// `dispensado_por {id, nombre}`, sin `paciente` ni `detalles`); la UI degrada con backends anteriores.
 import { http, HttpResponse, type HttpHandler } from 'msw';
 import type { DispensacionListado } from '../../api/endpoints/dispensaciones';
 import type {

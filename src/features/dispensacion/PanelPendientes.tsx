@@ -1,5 +1,6 @@
 // Pendientes de autorización (control especial): solo regentes con dispensacion.autorizar.
-// Listado del contrato v0.13.0 (sin paciente ni detalles); ante 404/405 se abre una por su número.
+// Listado del contrato v0.13.0 (sin paciente ni detalles). Con backends anteriores a v0.13.0
+// (404/405) se degrada: se abre una dispensación por su número.
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
@@ -195,7 +196,7 @@ function AbrirDispensacion({
   return (
     <div className="flex flex-col gap-2">
       <p className="text-xs text-slate-500">
-        El servidor aún no publica el listado: abre la dispensación por su número.
+        Este servidor no ofrece el listado; abre una dispensación por número.
       </p>
       <form
         noValidate

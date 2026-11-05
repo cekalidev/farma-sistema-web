@@ -209,7 +209,10 @@ export function itemAfectado(e: unknown): number | null {
   return typeof id === 'number' ? id : null;
 }
 
-/** El listado aún no existe en el backend: 404/405 se degradan a "Abrir dispensación #". */
+/**
+ * `GET /dispensaciones` existe desde v0.13.0; para backends anteriores se mantiene la degradación:
+ * 404/405 pasan a "Abrir dispensación #".
+ */
 export function listadoNoDisponible(e: unknown): boolean {
   return (
     esApiError(e) &&

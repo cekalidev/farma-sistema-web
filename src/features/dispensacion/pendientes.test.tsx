@@ -31,8 +31,8 @@ async function pendienteDelRegente(): Promise<number> {
   return dispensacion.id;
 }
 
-/** El backend aún no publica el listado: responde 405. */
-const listadoNoPublicado = () =>
+/** Backend anterior a v0.13.0, sin el listado: responde 405. */
+const servidorSinListado = () =>
   server.use(
     http.get(api('/dispensaciones'), () =>
       errorApi(405, 'METODO_NO_PERMITIDO', 'Method not allowed'),
@@ -134,7 +134,7 @@ describe('pendientes de autorización', () => {
   });
 
   it('listado 405: sin error, abre por número y autoriza', async () => {
-    listadoNoPublicado();
+    servidorSinListado();
     sessionStorage.setItem(CLAVE_PENDIENTES, JSON.stringify([1]));
     const u = userEvent.setup();
     renderConProveedores(<PantallaDispensacion />, { rol: 'regente_farmacia' });
@@ -161,7 +161,7 @@ describe('pendientes de autorización', () => {
   });
 
   it('detalle con paciente enmascarado: distintivo "Datos enmascarados"', async () => {
-    listadoNoPublicado();
+    servidorSinListado();
     server.use(
       http.get(api('/dispensaciones/:id'), () => {
         const d = DISPENSACIONES[0];

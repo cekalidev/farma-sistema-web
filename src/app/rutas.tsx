@@ -1,14 +1,28 @@
 // Definición de rutas con carga diferida por pantalla
+import type { ComponentType } from 'react';
 import type { RouteObject } from 'react-router';
+import { Cargando } from '../components/ui/Cargando';
 import { AppShell } from './AppShell';
 import { InicioPorRol } from './InicioPorRol';
 import { NoEncontrado } from './NoEncontrado';
 import { RequireAuth } from './RequireAuth';
 import { RutaConPermiso } from './RutaConPermiso';
+function CargandoPantalla() {
+  return <Cargando />;
+}
+
+/** Pantalla diferida; HydrateFallback evita el aviso de React Router en la carga inicial. */
+function diferida(cargar: () => Promise<{ default: ComponentType }>) {
+  return {
+    lazy: async () => ({ Component: (await cargar()).default }),
+    HydrateFallback: CargandoPantalla,
+  };
+}
+
 export const rutas: RouteObject[] = [
   {
     path: '/login',
-    lazy: async () => ({ Component: (await import('../features/login')).default }),
+    ...diferida(() => import('../features/login')),
   },
   {
     element: (
@@ -24,7 +38,7 @@ export const rutas: RouteObject[] = [
         children: [
           {
             index: true,
-            lazy: async () => ({ Component: (await import('../features/dispensacion')).default }),
+            ...diferida(() => import('../features/dispensacion')),
           },
         ],
       },
@@ -34,13 +48,11 @@ export const rutas: RouteObject[] = [
         children: [
           {
             index: true,
-            lazy: async () => ({ Component: (await import('../features/traslados')).default }),
+            ...diferida(() => import('../features/traslados')),
           },
           {
             path: ':id',
-            lazy: async () => ({
-              Component: (await import('../features/traslados/detalle')).default,
-            }),
+            ...diferida(() => import('../features/traslados/detalle')),
           },
         ],
       },
@@ -50,7 +62,7 @@ export const rutas: RouteObject[] = [
         children: [
           {
             index: true,
-            lazy: async () => ({ Component: (await import('../features/inventario')).default }),
+            ...diferida(() => import('../features/inventario')),
           },
         ],
       },
@@ -60,7 +72,7 @@ export const rutas: RouteObject[] = [
         children: [
           {
             index: true,
-            lazy: async () => ({ Component: (await import('../features/kardex')).default }),
+            ...diferida(() => import('../features/kardex')),
           },
         ],
       },

@@ -50,7 +50,13 @@ podman run -p 8080:8080 -e API_UPSTREAM=http://host.containers.internal:8000 far
 
 `--format docker` hace falta para que Podman conserve el `HEALTHCHECK`. `API_UPSTREAM` indica dónde está la API (sin barra final) y `WEB_PORT` el puerto publicado en el host.
 
-El arranque de todo el sistema en un solo comando (base de datos, API y web) vive en el `compose.yaml` del backend, que es quien define la base de datos y la API. Aquí está el servicio `web` listo para integrarse: basta con apuntar `API_UPSTREAM` a `http://api:8000` y activar el `depends_on` con `condition: service_healthy` que ya está comentado en `compose.yaml`.
+**Sistema completo.** El arranque de base de datos, API y web en un solo comando vive en el `docker-compose.yml` del repositorio del backend. Con `farma-sistema` y `farma-sistema-web` clonados uno al lado del otro (el compose construye la web desde `../farma-sistema-web`), se ejecuta desde `farma-sistema`:
+
+```sh
+docker compose up --build
+```
+
+El servicio `api` escucha en el puerto 8000 y expone `/health` y `/ready`. El servicio `web` se publica en `${WEB_PORT:-8080}` y recibe `API_UPSTREAM=http://api:8000`.
 
 ## Scripts
 
@@ -167,7 +173,7 @@ El hook `pre-commit` ejecuta `vp staged`: formato y Oxlint sobre los archivos pr
 
 ## Supuestos
 
-- **Dispensaciones pendientes.** El backend anunció `GET /dispensaciones` (contrato v0.13.0: filas con `dispensado_por {id, nombre}`, sin paciente ni detalles), pero aún no lo ha publicado. El panel del regente lo consume si existe; si responde 404 o 405, degrada a “Abrir dispensación #” y recuerda como accesos rápidos las pendientes creadas en la sesión. La demo (`VITE_API_MOCKS=todo`) simula el listado con la forma del contrato v0.13.0.
+- **Dispensaciones pendientes.** `GET /dispensaciones` existe desde el contrato v0.13.0 (filas con `dispensado_por {id, nombre}`, sin paciente ni detalles) y el panel del regente lo consume. Se mantiene la degradación para backends anteriores a v0.13.0: si responde 404 o 405, el panel muestra “Abrir dispensación #” y recuerda como accesos rápidos las pendientes creadas en la sesión. La demo (`VITE_API_MOCKS=todo`) simula el listado con la forma del contrato v0.13.0.
 - **Alertas.** Se construyeron cuando el contrato las marcaba “en revisión”; se ajustan a §4.8 del contrato (v0.12.0), que ya las cierra. Con un backend anterior (404 o 405), el panel muestra un aviso discreto en vez de un error.
 - **Autorización de control especial.** El segundo regente autoriza desde su propia sesión. La UI no pide credenciales de otro usuario en el momento.
 - **Nombres de usuario.** En traslados la API solo entrega ids, así que se muestran como “Usuario #id” (o “Tú” si es el usuario actual). El listado de pendientes usa `dispensado_por.nombre` cuando viene.
@@ -182,13 +188,19 @@ El hook `pre-commit` ejecuta `vp staged`: formato y Oxlint sobre los archivos pr
 - **Pruebas E2E en navegador.** Los flujos se cubren con Testing Library sobre MSW; E2E exigiría orquestar el backend en el CI.
 - **i18n.** La aplicación es solo en español; los textos están en los componentes.
 
+## Mejoras futuras
+
+- Mostrar nombres de usuario en traslados: la API actual solo da ids.
+
 ## Versionado
 
 SemVer con tags anotados: `v0.1.0` (base) … `v0.6.0` (correcciones del núcleo), `v0.7.0` (correcciones de pantallas) y `v1.0.0` para la entrega. Un commit por funcionalidad, con mensajes del tipo `feat(traslados): …`, `build: …` o `fix: …`.
 
 - `v1.0.1`: listado de pendientes alineado con el contrato v0.13.0.
+- `v1.0.2`: verificación de punta a punta contra la API real y arranque del sistema completo documentado.
 
 ## Más documentación
 
 - [Estrategia de despliegue](docs/despliegue.md)
 - [Uso de herramientas de IA](AI_USAGE.md)
+- Contrato de la API y colección Postman, en el repositorio hermano `farma-sistema`: `../farma-sistema/docs/contrato-api.md` y `../farma-sistema/docs/postman/` (`farma-sistema.postman_collection.json`, `farma-sistema-local.postman_environment.json` y su `README.md`).

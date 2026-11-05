@@ -41,7 +41,7 @@ Corresponde al backend (repositorio `farma-sistema`), que es dueño de PostgreSQ
 
 ## Compatibilidad entre API y frontend
 
-- El frontend consume `/api/v1` según `docs/contrato-api.md` del backend: `v0.12.0` publicada al cerrar esta entrega. El listado `GET /dispensaciones` (`v0.13.0`) está anunciado pero aún no publicado; el frontend lo usa si existe y, ante 404 o 405, degrada a abrir la dispensación por número.
+- El frontend consume `/api/v1` según `docs/contrato-api.md` del backend: hasta `v0.13.0`, que publica el listado `GET /dispensaciones`. Con un backend anterior a `v0.13.0` el frontend degrada ante 404 o 405 y ofrece abrir la dispensación por número.
 - Cambios aditivos en la API (campos o endpoints nuevos) no rompen el frontend: los tipos ignoran campos desconocidos y un `codigo` de error nuevo muestra un mensaje genérico.
 - Un cambio incompatible exige `/api/v2` o un orden de despliegue: primero el backend compatible con ambas versiones, después el frontend.
 - Para depurar, cada error muestra el código de seguimiento (`X-Correlation-Id` o `X-Request-Id`) que el backend registra en sus logs.

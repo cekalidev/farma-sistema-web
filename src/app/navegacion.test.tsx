@@ -2,14 +2,27 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vite-plus/test';
+import type { RouteObject } from 'react-router';
 import { server } from '../mocks/server';
 import { api, errorApi, tokenMock } from '../mocks/utilidades';
 import { renderApp } from '../test/render';
+import { rutas } from './rutas';
 
 const enlacesNav = () =>
   within(screen.getByRole('navigation', { name: 'Principal' }))
     .queryAllByRole('link')
     .map((a) => a.textContent);
+
+const aplanar = (rs: RouteObject[]): RouteObject[] =>
+  rs.flatMap((r) => [r, ...aplanar(r.children ?? [])]);
+
+describe('rutas diferidas', () => {
+  it('cada ruta lazy declara HydrateFallback (sin aviso de React Router al cargar)', () => {
+    const diferidas = aplanar(rutas).filter((r) => r.lazy);
+    expect(diferidas.length).toBeGreaterThan(0);
+    for (const r of diferidas) expect(r.HydrateFallback).toBeDefined();
+  });
+});
 
 describe('navegación por rol', () => {
   it('auxiliar: inicio en dispensación y nav sin restricciones de auditor', async () => {
