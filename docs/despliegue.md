@@ -22,6 +22,7 @@ Producción usa un environment de GitHub (`produccion`) con _required reviewers_
 
 - En tiempo de ejecución, solo `API_UPSTREAM` (URL de la API, sin barra final). El entrypoint de Nginx la sustituye en la plantilla al arrancar el contenedor.
 - `VITE_API_URL` y `VITE_API_MOCKS` se fijan al construir la imagen (`/api/v1` y `no` en producción). Son públicas: nunca llevan secretos.
+- En Render (Web Service Docker, `render.yaml`) se añade `PORT=8080`, y `API_UPSTREAM` puede ser https: nginx envía SNI y el `Host` del upstream.
 - El frontend no guarda secretos. El token del usuario vive en `sessionStorage` del navegador.
 
 ## Salud

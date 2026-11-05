@@ -1,0 +1,17 @@
+# Blueprint de Render: solo el frontend (nginx sirve la SPA y hace proxy de /api).
+# Spec: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: farma-sistema-web
+    runtime: docker
+    region: virginia
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    envVars:
+      # URL de la API sin barra final, p. ej. https://farma-sistema-api.onrender.com
+      - key: API_UPSTREAM
+        sync: false
+      # Puerto en el que escucha nginx dentro de la imagen
+      - key: PORT
+        value: '8080'

@@ -192,12 +192,24 @@ El hook `pre-commit` ejecuta `vp staged`: formato y Oxlint sobre los archivos pr
 
 - Mostrar nombres de usuario en traslados: la API actual solo da ids.
 
+## Despliegue en Render
+
+La imagen del `Dockerfile` corre tal cual como Web Service. Nginx hace proxy de `/api/` hacia la API, así que todo queda en el mismo origen y no hace falta CORS.
+
+1. New → Web Service → elegir este repositorio → Language: Docker.
+2. Region: Virginia (US East). Instance type: Free.
+3. Variables de entorno: `API_UPSTREAM=https://farma-sistema-api.onrender.com` (sin barra final) y `PORT=8080`.
+4. Advanced → Health Check Path: `/healthz`. Crear el servicio.
+
+También se puede crear con el Blueprint `render.yaml` (New → Blueprint); Render pide el valor de `API_UPSTREAM` al crearlo. En el plan gratuito la API tarda de 30 a 60 s en despertar; el proxy espera hasta 120 s.
+
 ## Versionado
 
 SemVer con tags anotados: `v0.1.0` (base) … `v0.6.0` (correcciones del núcleo), `v0.7.0` (correcciones de pantallas) y `v1.0.0` para la entrega. Un commit por funcionalidad, con mensajes del tipo `feat(traslados): …`, `build: …` o `fix: …`.
 
 - `v1.0.1`: listado de pendientes alineado con el contrato v0.13.0.
 - `v1.0.2`: verificación de punta a punta contra la API real y arranque del sistema completo documentado.
+- `v1.1.0`: despliegue en Render (Docker): proxy de nginx hacia una API https y Blueprint `render.yaml`.
 
 ## Más documentación
 
