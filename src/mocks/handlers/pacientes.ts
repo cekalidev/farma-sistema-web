@@ -1,8 +1,8 @@
 // Pacientes y prescripciones. El backend los está incorporando con esta misma forma;
 // cuando estén publicados, mover a `handlersReales`.
 import { http, HttpResponse, type HttpHandler } from 'msw';
-import type { Paciente, Usuario } from '../../api/tipos';
-import { PACIENTES, PRESCRIPCIONES } from '../datos';
+import type { Paciente, Prescripcion, Usuario } from '../../api/tipos';
+import { DISPENSACIONES, PACIENTES, PRESCRIPCIONES } from '../datos';
 import { api, autorizar, errorApi } from '../utilidades';
 
 const cola = (v: string | null, mascara: string, visibles: number) =>
@@ -32,6 +32,32 @@ export function enmascarar(p: Paciente): Paciente {
 }
 
 export const verPaciente = (p: Paciente, u: Usuario) => (u.rol === 'auditor' ? enmascarar(p) : p);
+
+/** Unidades ya comprometidas por ítem (CONFIRMADA + PENDIENTE_AUTORIZACION, como CalculadorPendiente). */
+export function comprometidoPorItem(itemId: number): number {
+  let total = 0;
+  for (const d of DISPENSACIONES) {
+    if (d.estado === 'RECHAZADA') continue;
+    for (const i of d.items) if (i.prescripcion_item_id === itemId) total += i.cantidad;
+  }
+  return total;
+}
+
+/** Pendiente por dispensar de un ítem prescrito (nunca negativo). */
+export function pendienteDeItem(itemId: number, prescrita: number): number {
+  return Math.max(0, prescrita - comprometidoPorItem(itemId));
+}
+
+/** Prescripción con `cantidad_pendiente` recalculada desde las dispensaciones. */
+export function conPendientes(p: Prescripcion): Prescripcion {
+  return {
+    ...p,
+    items: p.items.map((i) => ({
+      ...i,
+      cantidad_pendiente: pendienteDeItem(i.id, i.cantidad_prescrita),
+    })),
+  };
+}
 
 export const handlersReales: HttpHandler[] = [];
 
@@ -73,7 +99,7 @@ export const handlersFaltantes: HttpHandler[] = [
     const data = PRESCRIPCIONES.filter((x) => x.paciente_id === p.id)
       .toSorted((a, b) => b.fecha_emision.localeCompare(a.fecha_emision) || b.id - a.id)
       .map((x) => ({
-        ...x,
+        ...conPendientes(x),
         observaciones: u.rol === 'auditor' ? null : x.observaciones,
         paciente: verPaciente(p, u),
       }));
