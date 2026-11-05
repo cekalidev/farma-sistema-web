@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { delay, http } from 'msw';
+import { delay, http, HttpResponse } from 'msw';
 import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import type { Rol } from '../../api/tipos';
 import { reiniciarInventario } from '../../mocks/handlers/inventario';
@@ -66,6 +66,61 @@ describe('Inventario', () => {
     expect(minimos).toHaveTextContent('14/20');
   });
 
+  it('alertas con la forma paginada: usa meta.hoy y el umbral de meta', async () => {
+    let query = '';
+    server.use(
+      http.get(api('/alertas/vencimientos'), ({ request }) => {
+        query = new URL(request.url).search;
+        return HttpResponse.json({
+          data: [
+            {
+              existencia_id: 99,
+              bodega: { id: 1, codigo: 'FC', nombre: 'Farmacia Central' },
+              producto: { id: 1, codigo: 'SINT01', nombre: 'Producto sintético' },
+              lote: { id: 99, codigo: 'L-SINT-9', fecha_vencimiento: '2030-01-10' },
+              fecha_vencimiento: '2030-01-10',
+              cantidad: 7,
+              tipo: 'POR_VENCER',
+              dias_restantes: 9,
+            },
+          ],
+          links: { first: null, last: null, prev: null, next: null },
+          meta: {
+            current_page: 1,
+            from: 1,
+            last_page: 1,
+            links: [],
+            path: '/api/v1/alertas/vencimientos',
+            per_page: 100,
+            to: 1,
+            total: 1,
+            hoy: '2030-01-01',
+            dias_alerta_vencimiento: 30,
+          },
+        });
+      }),
+    );
+    renderInventario('auditor');
+    const porVencer = await screen.findByRole('region', { name: 'Por vencer (≤30 días)' });
+    expect(porVencer).toHaveTextContent('L-SINT-9');
+    expect(porVencer).toHaveTextContent('vence en 9 días');
+    expect(screen.getByText(/al 01\/01\/2030 · próximos 30 días/)).toBeInTheDocument();
+    expect(query).toContain('por_pagina=100');
+  });
+
+  it('alertas 404/405: aviso discreto en lugar de error', async () => {
+    server.use(
+      http.get(api('/alertas/vencimientos'), () => errorApi(404, 'NO_ENCONTRADO', 'No existe.')),
+      http.get(api('/alertas/stock-minimo'), () =>
+        errorApi(405, 'METODO_NO_PERMITIDO', 'No permitido.'),
+      ),
+    );
+    renderInventario('auditor');
+    expect(await screen.findByText('Alertas no disponibles en este servidor.')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(await tabla()).toBeInTheDocument();
+  });
+
   it('si falla stock mínimo, el resto de la pantalla sigue funcionando', async () => {
     server.use(
       http.get(api('/alertas/stock-minimo'), () => errorApi(500, 'ERROR_INTERNO', 'Falla')),
@@ -116,6 +171,19 @@ describe('Inventario', () => {
       expect(screen.getAllByRole('link', { name: /Ver kardex/ }).length).toBeGreaterThan(0);
       r.unmount();
     }
+  });
+
+  it('Escape cierra el ajuste y el foco vuelve a "Ajustar"', async () => {
+    renderInventario();
+    const f = await fila('IBU400-A');
+    const ajustar = within(f).getByRole('button', { name: /^Ajustar/ });
+    const usuario = userEvent.setup();
+    await usuario.click(ajustar);
+    const dialogo = await screen.findByRole('dialog', { name: 'Ajustar inventario' });
+    expect(within(dialogo).getByLabelText('Cantidad (con signo)')).toHaveFocus();
+    await usuario.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(ajustar).toHaveFocus();
   });
 
   it('valida cantidad y motivo antes de enviar', async () => {

@@ -1,76 +1,17 @@
-// Kardex (existe en el backend): listado filtrado e inmutable, en orden ascendente
+// Kardex (existe en el backend): listado filtrado e inmutable, en orden ascendente.
+// Lee el kardex simulado compartido (`MOVIMIENTOS` de datos.ts); los handlers que mueven
+// stock añaden con `registrarMovimiento` (utilidades.ts).
 import { http, HttpResponse, type HttpHandler } from 'msw';
-import type { Existencia, MovimientoKardex, TipoMovimiento } from '../../api/tipos';
 import { fechaRelativa } from '../../lib/fechas';
-import { EXISTENCIAS, USUARIOS } from '../datos';
+import { MOVIMIENTOS, reiniciarDatos } from '../datos';
 import { api, autorizar, errorApi, filtroNum, paginar } from '../utilidades';
 
-const MOVIMIENTOS: MovimientoKardex[] = [];
-let siguienteId = 1;
-
-interface NuevoMovimiento {
-  tipo: TipoMovimiento;
-  existencia: Existencia;
-  /** Con signo. */
-  cantidad: number;
-  saldoAnterior: number;
-  motivo?: string | null;
-  usuarioId: number;
-  documento?: MovimientoKardex['documento'];
-  createdAt?: string;
-}
-
-/** Añade un movimiento al kardex mock (lo usan los handlers que mueven stock). */
-export function registrarMovimiento(m: NuevoMovimiento): MovimientoKardex {
-  const e = m.existencia;
-  const u = USUARIOS.find((x) => x.id === m.usuarioId);
-  const mov: MovimientoKardex = {
-    id: siguienteId++,
-    tipo: m.tipo,
-    existencia_id: e.id,
-    bodega_id: e.bodega_id,
-    producto_id: e.producto_id,
-    lote_id: e.lote_id,
-    bodega: e.bodega,
-    producto: e.producto,
-    lote: e.lote,
-    cantidad: m.cantidad,
-    saldo_anterior: m.saldoAnterior,
-    saldo_posterior: m.saldoAnterior + m.cantidad,
-    motivo: m.motivo ?? null,
-    usuario_id: m.usuarioId,
-    usuario: { id: m.usuarioId, nombre: u?.nombre ?? `Usuario ${m.usuarioId}` },
-    documento: m.documento ?? null,
-    created_at: m.createdAt ?? new Date().toISOString(),
-  };
-  MOVIMIENTOS.push(mov);
-  return mov;
-}
-
-/** Semilla: una ENTRADA por existencia, coherente con su saldo actual. */
-function sembrar(): void {
-  for (const e of EXISTENCIAS) {
-    const diasAtras = 3 + (e.id % 10);
-    const fecha = new Date();
-    fecha.setDate(fecha.getDate() - diasAtras);
-    fecha.setHours(8, e.id % 60, 0, 0);
-    registrarMovimiento({
-      tipo: 'ENTRADA',
-      existencia: e,
-      cantidad: e.cantidad,
-      saldoAnterior: 0,
-      usuarioId: 2,
-      createdAt: fecha.toISOString(),
-    });
-  }
-}
-sembrar();
-
-/** Reinicia el kardex mock con la semilla (tests). */
+/**
+ * Compatibilidad: el kardex ya no tiene estado propio. Restaura la semilla común
+ * (incluye `MOVIMIENTOS`), igual que `reiniciarDatos`.
+ */
 export function reiniciarKardex(): void {
-  MOVIMIENTOS.length = 0;
-  siguienteId = 1;
-  sembrar();
+  reiniciarDatos();
 }
 
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;

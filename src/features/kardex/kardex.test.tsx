@@ -72,9 +72,9 @@ describe('Kardex', () => {
     renderKardex();
     const [, entrada, salida, traslado, ajuste] = within(await tabla()).getAllByRole('row');
     expect(entrada).toHaveTextContent('Entrada');
-    expect(within(entrada as HTMLElement).getByText('+10')).toHaveClass('text-emerald-700');
+    expect(within(entrada as HTMLElement).getByText('+10')).toHaveClass('text-ok-700');
     expect(salida).toHaveTextContent('Salida por dispensación');
-    expect(within(salida as HTMLElement).getByText('−3')).toHaveClass('text-red-700');
+    expect(within(salida as HTMLElement).getByText('−3')).toHaveClass('text-peligro-700');
     expect(salida).toHaveTextContent('10→ a 7');
     expect(salida).toHaveTextContent('Dispensación #14');
     expect(traslado).toHaveTextContent('Salida por traslado');

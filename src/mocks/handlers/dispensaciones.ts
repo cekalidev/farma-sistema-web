@@ -1,18 +1,27 @@
 // Dispensaciones. Reales (fieles al backend): previsualizar, crear (idempotente), autorizar,
-// rechazar y detalle. Faltante: listado (solo pendientes de autorización en la UI).
+// rechazar y detalle. Faltante: listado (llega en el próximo commit del backend; forma prevista).
 import { http, HttpResponse, type HttpHandler } from 'msw';
 import type {
   Dispensacion,
   DispensacionDetalle,
   Existencia,
+  EstadoDispensacion,
   Prescripcion,
   PrescripcionItem,
+  Rol,
   SolicitudDispensacion,
   Usuario,
 } from '../../api/tipos';
 import { diasHastaVencer, hoyISO } from '../../lib/fechas';
-import { BODEGAS, DISPENSACIONES, EXISTENCIAS, PACIENTES, PRESCRIPCIONES } from '../datos';
-import { api, autorizar, errorApi, filtroNum, paginar } from '../utilidades';
+import {
+  BODEGAS,
+  DISPENSACIONES,
+  EXISTENCIAS,
+  PACIENTES,
+  PRESCRIPCIONES,
+  USUARIOS,
+} from '../datos';
+import { api, autorizar, errorApi, filtroNum, paginar, registrarMovimiento } from '../utilidades';
 import { pendienteDeItem, verPaciente } from './pacientes';
 
 // ---------- Estado mutable y reinicio (tests) ----------
@@ -28,7 +37,6 @@ interface Registrada {
 const idempotencia = new Map<string, Registrada>();
 let secuenciaItem = 1000;
 let secuenciaDetalle = 1000;
-let secuenciaMovimiento = 5000;
 
 /** Restaura existencias, dispensaciones y el registro de idempotencia. */
 export function reiniciarDispensaciones(): void {
@@ -113,7 +121,7 @@ function validarCuerpo(cuerpo: unknown): SolicitudDispensacion | Response {
     campos.paciente_id = ['The selected paciente id is invalid.'];
   if (esId(c.prescripcion_id) && !PRESCRIPCIONES.some((p) => p.id === c.prescripcion_id))
     campos.prescripcion_id = ['The selected prescripcion id is invalid.'];
-  if (esId(c.bodega_id) && !BODEGAS.some((b) => b.id === c.bodega_id))
+  if (esId(c.bodega_id) && !BODEGAS.some((b) => b.id === c.bodega_id && b.activa))
     campos.bodega_id = ['La bodega no existe o está inactiva.'];
   const items = c.items;
   if (!Array.isArray(items) || items.length === 0) {
@@ -122,9 +130,10 @@ function validarCuerpo(cuerpo: unknown): SolicitudDispensacion | Response {
     const vistos = new Set<number>();
     items.forEach((raw: unknown, i) => {
       const it = (raw ?? {}) as Record<string, unknown>;
-      const extra = Object.keys(it).filter((k) => k !== 'prescripcion_item_id' && k !== 'cantidad');
-      if (extra.length)
-        campos[`items.${i}`] = ['Cada ítem admite solo prescripcion_item_id y cantidad.'];
+      for (const k of Object.keys(it)) {
+        if (k !== 'prescripcion_item_id' && k !== 'cantidad')
+          campos[`items.${i}.${k}`] = ['Campo no permitido.'];
+      }
       const id = it.prescripcion_item_id;
       if (!esId(id)) campos[`items.${i}.prescripcion_item_id`] = ['The field is required.'];
       else if (vistos.has(id))
@@ -230,7 +239,7 @@ function asignarTodos(
   return salida;
 }
 
-/** Descuenta los tramos y devuelve los detalles con su movimiento de kardex. */
+/** Descuenta los tramos y devuelve los detalles con su movimiento en el kardex compartido. */
 function descontar(
   d: Dispensacion,
   asignacion: Asignacion,
@@ -243,6 +252,14 @@ function descontar(
       const anterior = e.cantidad;
       e.cantidad -= cantidad;
       e.vencido = diasHastaVencer(e.lote.fecha_vencimiento) <= 0;
+      const movimiento = registrarMovimiento({
+        tipo: 'SALIDA_DISPENSACION',
+        existencia: e,
+        cantidad: -cantidad,
+        saldoAnterior: anterior,
+        usuarioId: usuario.id,
+        documento: { tipo: 'dispensacion', id: d.id },
+      });
       detalles.push({
         id: secuenciaDetalle++,
         dispensacion_item_id: dItem?.id ?? 0,
@@ -252,25 +269,7 @@ function descontar(
         lote_id: e.lote_id,
         lote: { ...e.lote },
         cantidad,
-        movimiento: {
-          id: secuenciaMovimiento++,
-          tipo: 'SALIDA_DISPENSACION',
-          existencia_id: e.id,
-          bodega_id: e.bodega_id,
-          producto_id: e.producto_id,
-          lote_id: e.lote_id,
-          bodega: { ...e.bodega },
-          producto: { ...e.producto },
-          lote: { ...e.lote },
-          cantidad: -cantidad,
-          saldo_anterior: anterior,
-          saldo_posterior: e.cantidad,
-          motivo: null,
-          usuario_id: usuario.id,
-          usuario: { id: usuario.id, nombre: usuario.nombre },
-          documento: { tipo: 'dispensacion', id: d.id },
-          created_at: new Date().toISOString(),
-        },
+        movimiento,
       });
     }
   }
@@ -300,6 +299,22 @@ function exigirAutorizable(d: Dispensacion, u: Usuario, accion: string): Respons
     });
   }
   return null;
+}
+
+const ROLES_CONSULTA: Rol[] = ['auxiliar_farmacia', 'regente_farmacia', 'auditor'];
+const ESTADOS: EstadoDispensacion[] = ['CONFIRMADA', 'PENDIENTE_AUTORIZACION', 'RECHAZADA'];
+
+const prohibido = () =>
+  errorApi(403, 'NO_AUTORIZADO', 'No tiene permiso para realizar esta acción.');
+
+/** Fila del listado: el recurso + `dispensado_por`, sin datos del paciente. */
+function filaListado(d: Dispensacion) {
+  // DISPENSACIONES nunca guarda `paciente` (solo lo añade el detalle)
+  const creador = USUARIOS.find((x) => x.id === d.dispensado_por_id);
+  return {
+    ...d,
+    dispensado_por: { id: d.dispensado_por_id, nombre: creador?.nombre ?? '' },
+  };
 }
 
 export const handlersReales: HttpHandler[] = [
@@ -411,6 +426,9 @@ export const handlersReales: HttpHandler[] = [
     if (!d) return errorApi(404, 'NO_ENCONTRADO', 'Recurso no encontrado.');
     const bloqueo = exigirAutorizable(d, u, 'autorizar');
     if (bloqueo) return bloqueo;
+    if (!BODEGAS.some((b) => b.id === d.bodega_id && b.activa)) {
+      return validacion({ bodega_id: ['La bodega no existe o está inactiva.'] });
+    }
     const s: SolicitudDispensacion = {
       paciente_id: d.paciente_id,
       prescripcion_id: d.prescripcion_id,
@@ -459,29 +477,39 @@ export const handlersReales: HttpHandler[] = [
   }),
 
   http.get(api('/dispensaciones/:id'), ({ request, params }) => {
-    const u = autorizar(
-      request,
-      'dispensacion.crear',
-      'dispensacion.autorizar',
-      'auditoria.consultar',
-    );
+    // 401 → 404 → 403 (§1.8). Policy: auxiliar, regente y auditor; admin y médico 403.
+    const u = autorizar(request);
     if (u instanceof Response) return u;
     const d = buscarDispensacion(params.id);
     if (!d) return errorApi(404, 'NO_ENCONTRADO', 'Recurso no encontrado.');
+    if (!ROLES_CONSULTA.includes(u.rol)) return prohibido();
     const p = PACIENTES.find((x) => x.id === d.paciente_id);
     return HttpResponse.json({ data: { ...d, ...(p ? { paciente: verPaciente(p, u) } : {}) } });
   }),
 ];
 
 export const handlersFaltantes: HttpHandler[] = [
+  // Forma prevista: paginado, created_at ascendente (desempate id), sin paciente
   http.get(api('/dispensaciones'), ({ request }) => {
-    const u = autorizar(request, 'dispensacion.crear', 'dispensacion.autorizar');
+    const u = autorizar(request);
     if (u instanceof Response) return u;
-    const estado = new URL(request.url).searchParams.get('estado');
+    if (!ROLES_CONSULTA.includes(u.rol)) return prohibido();
+    const q = new URL(request.url).searchParams;
+    const estado = q.get('estado');
     const bodega = filtroNum(request, 'bodega_id');
+    const campos: Record<string, string[]> = {};
+    if (estado && !ESTADOS.includes(estado as EstadoDispensacion))
+      campos.estado = ['The selected estado is invalid.'];
+    if (bodega !== undefined && !esId(bodega)) campos.bodega_id = ['The field must be an integer.'];
+    const porPagina = q.get('por_pagina');
+    if (porPagina !== null && !/^(100|[1-9]\d?)$/.test(porPagina))
+      campos.por_pagina = ['The por pagina field must be between 1 and 100.'];
+    if (Object.keys(campos).length) return validacion(campos);
     const filas = DISPENSACIONES.filter(
       (d) => (!estado || d.estado === estado) && (bodega === undefined || d.bodega_id === bodega),
-    ).toSorted((a, b) => b.id - a.id);
+    )
+      .toSorted((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id)
+      .map(filaListado);
     return HttpResponse.json(paginar(filas, request));
   }),
 ];

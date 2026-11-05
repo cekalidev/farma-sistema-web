@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { esApiError } from '../../api/client';
 import { mensajeDeError } from '../../api/errores';
 import { Button } from './Button';
 
@@ -25,6 +26,12 @@ export function ErrorBanner({ error, titulo, extra, onReintentar }: Props) {
         {titulo ? <p className="font-semibold">{titulo}</p> : null}
         <p>{mensajeDeError(error)}</p>
         {extra ? <div className="mt-1">{extra}</div> : null}
+        {esApiError(error) && error.correlacionId ? (
+          <p className="mt-1 text-xs text-peligro-800">
+            Código de seguimiento:{' '}
+            <span className="font-mono select-all">{error.correlacionId}</span>
+          </p>
+        ) : null}
       </div>
       {onReintentar ? (
         <Button variante="secundario" tamano="sm" onClick={onReintentar}>

@@ -4,16 +4,15 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useForm, useWatch } from 'react-hook-form';
-import { esApiError } from '../../api/client';
 import {
   crearDispensacion,
   dispensacionesKeys,
   previsualizarDispensacion,
 } from '../../api/endpoints/dispensaciones';
 import { pacientesKeys } from '../../api/endpoints/pacientes';
-import { manejarErrorDeFormulario } from '../../api/errores';
+import { esResultadoIncierto, manejarErrorDeFormulario } from '../../api/errores';
+import { invalidarStock } from '../../api/invalidaciones';
 import type {
-  Dispensacion,
   Paciente,
   Prescripcion,
   Previsualizacion,
@@ -21,23 +20,32 @@ import type {
 } from '../../api/tipos';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
+import { DialogoConfirmar } from '../../components/ui/DialogoConfirmar';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
+import { CLASE_CONTENEDOR_TABLA, CLASE_TD, CLASE_TH, CLASE_THEAD } from '../../components/ui/Table';
 import { useAccionUnica } from '../../components/ui/useAccionUnica';
 import {
+  borrarIntento,
   construirSolicitud,
   esquemaItems,
+  guardarIntento,
   itemAfectado,
   mapaCamposServidor,
   pendienteDe,
+  refrescaPrescripcion,
   serializarSolicitud,
   valoresIniciales,
   type GestorClave,
+  type IntentoPendiente,
   type ValoresItems,
 } from './logica';
+import { Resultado, type ResultadoDispensacion } from './Resultado';
 import { TablaLotes } from './TablaLotes';
 
 export const TITULO_ERROR_RED =
   'No se pudo confirmar si la dispensación se registró. Reintentar es seguro: no se duplicará.';
+export const TEXTO_DESCARTAR =
+  'Si el servidor llegó a registrarla, empezar de nuevo y volver a confirmar puede dispensar dos veces los mismos medicamentos. Descarta solo si sabes que no se registró (por ejemplo, revisando el kardex).';
 
 interface Props {
   paciente: Paciente;
@@ -46,6 +54,10 @@ interface Props {
   gestorClave: GestorClave;
   /** El resultado bloquea los pasos anteriores hasta "Nueva dispensación". */
   onFinalizada: () => void;
+  /** Resultado incierto: bodega, paciente y prescripción quedan bloqueados. */
+  onCongelar: (congelado: boolean) => void;
+  /** Quedó PENDIENTE_AUTORIZACION: el panel la recuerda como acceso rápido. */
+  onPendienteCreada: (id: number) => void;
   onNueva: () => void;
 }
 
@@ -66,6 +78,8 @@ export function FlujoDispensacion({
   bodegaId,
   gestorClave,
   onFinalizada,
+  onCongelar,
+  onPendienteCreada,
   onNueva,
 }: Props) {
   const queryClient = useQueryClient();
@@ -75,6 +89,7 @@ export function FlujoDispensacion({
     handleSubmit,
     control,
     setError,
+    getValues,
     formState: { errors },
   } = useForm<ValoresItems>({
     resolver: zodResolver(esquema),
@@ -85,10 +100,10 @@ export function FlujoDispensacion({
   const [previa, setPrevia] = useState<Previa | null>(null);
   const [errorPrevia, setErrorPrevia] = useState<ErrorConFirma | null>(null);
   const [errorConfirmar, setErrorConfirmar] = useState<ErrorConFirma | null>(null);
-  const [resultado, setResultado] = useState<{
-    dispensacion: Dispensacion;
-    replayed: boolean;
-  } | null>(null);
+  const [resultado, setResultado] = useState<ResultadoDispensacion | null>(null);
+  // Envío sin respuesta clara (red o 5xx): cuerpo congelado, solo Reintentar con la misma clave
+  const [incierto, setIncierto] = useState<IntentoPendiente | null>(null);
+  const [descartando, setDescartando] = useState(false);
   const confirmarRef = useRef<HTMLDivElement>(null);
 
   // Firma del cuerpo actual: si difiere de la previsualizada, hay que volver a previsualizar
@@ -109,6 +124,10 @@ export function FlujoDispensacion({
     errorConfirmar && errorConfirmar.firma === firmaActual ? errorConfirmar.error : null;
   const resaltado = itemAfectado(errConfirmar) ?? itemAfectado(errPrevia);
   const finalizada = resultado !== null;
+  const congelado = incierto !== null;
+
+  const refrescarPrescripciones = () =>
+    void queryClient.invalidateQueries({ queryKey: pacientesKeys.prescripciones(paciente.id) });
 
   const previsualizar = useAccionUnica(async (v: ValoresItems) => {
     if (bodegaId === null) return;
@@ -122,36 +141,67 @@ export function FlujoDispensacion({
       confirmarRef.current?.querySelector('button')?.focus();
     } catch (e) {
       setPrevia(null);
+      if (refrescaPrescripcion(e)) refrescarPrescripciones();
       const pendiente = manejarErrorDeFormulario(e, setError, mapaCamposServidor(solicitud, v));
       if (pendiente) setErrorPrevia({ error: pendiente, firma });
     }
   });
 
-  const confirmar = useAccionUnica(async () => {
-    if (!previaVigente) return;
-    const { solicitud, firma } = previaVigente;
-    // Misma firma → misma clave (reintento seguro); firma nueva → clave nueva
-    const clave = gestorClave.claveParaCuerpo(firma);
+  const enviar = async (solicitud: SolicitudDispensacion, firma: string) => {
     setErrorConfirmar(null);
+    let clave: string | null = null;
     try {
+      // Misma firma → misma clave (reintento seguro); firma nueva → clave nueva
+      clave = gestorClave.claveParaCuerpo(firma);
       const r = await crearDispensacion(solicitud, clave);
       gestorClave.olvidar();
+      borrarIntento();
+      setIncierto(null);
       setResultado(r);
       onFinalizada();
-      void queryClient.invalidateQueries({ queryKey: pacientesKeys.prescripciones(paciente.id) });
+      if (r.dispensacion.estado === 'PENDIENTE_AUTORIZACION') onPendienteCreada(r.dispensacion.id);
+      refrescarPrescripciones();
       void queryClient.invalidateQueries({ queryKey: dispensacionesKeys.todo });
+      void invalidarStock(queryClient);
     } catch (e) {
+      if (clave !== null && esResultadoIncierto(e)) {
+        const intento = { clave, firmaCuerpo: firma, cuerpo: solicitud };
+        guardarIntento(intento);
+        setIncierto(intento);
+        onCongelar(true);
+        setErrorConfirmar({ error: e, firma });
+        return;
+      }
+      // 4xx de negocio: la clave no se consumió; se puede corregir y reenviar
+      borrarIntento();
+      if (incierto) {
+        setIncierto(null);
+        onCongelar(false);
+      }
+      if (refrescaPrescripcion(e)) refrescarPrescripciones();
       const pendiente = manejarErrorDeFormulario(
         e,
         setError,
-        mapaCamposServidor(solicitud, valoresIniciales(prescripcion)),
+        mapaCamposServidor(solicitud, getValues()),
       );
       if (pendiente) setErrorConfirmar({ error: pendiente, firma });
     }
+  };
+
+  const confirmar = useAccionUnica(async () => {
+    if (incierto) return enviar(incierto.cuerpo, incierto.firmaCuerpo);
+    if (previaVigente) return enviar(previaVigente.solicitud, previaVigente.firma);
   });
 
+  const descartar = () => {
+    borrarIntento();
+    gestorClave.olvidar();
+    setDescartando(false);
+    setIncierto(null);
+    onNueva();
+  };
+
   const hayControlEspecial = previaVigente?.datos.items.some((i) => i.producto.control_especial);
-  const errorRed = esApiError(errConfirmar) && errConfirmar.codigo === 'RED';
 
   return (
     <>
@@ -160,23 +210,23 @@ export function FlujoDispensacion({
         aria-label="Cantidades a dispensar"
         onSubmit={(e) => void handleSubmit((v) => previsualizar.ejecutar(v))(e)}
       >
-        <fieldset disabled={finalizada} className="flex flex-col gap-2">
+        <fieldset disabled={finalizada || congelado} className="flex min-w-0 flex-col gap-2">
           <legend className="sr-only">Ítems de la prescripción {prescripcion.id}</legend>
-          <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+          <div className={CLASE_CONTENEDOR_TABLA}>
             <table className="min-w-full text-sm">
               <caption className="sr-only">Ítems de la prescripción</caption>
-              <thead className="bg-slate-100 text-xs tracking-wide text-slate-600 uppercase">
+              <thead className={CLASE_THEAD}>
                 <tr>
-                  <th scope="col" className="px-3 py-2 text-left font-semibold">
+                  <th scope="col" className={`${CLASE_TH} text-left`}>
                     Producto
                   </th>
-                  <th scope="col" className="px-3 py-2 text-right font-semibold">
+                  <th scope="col" className={`${CLASE_TH} text-right`}>
                     Prescrita
                   </th>
-                  <th scope="col" className="px-3 py-2 text-right font-semibold">
+                  <th scope="col" className={`${CLASE_TH} text-right`}>
                     Pendiente
                   </th>
-                  <th scope="col" className="w-40 px-3 py-2 text-right font-semibold">
+                  <th scope="col" className={`${CLASE_TH} w-40 text-right`}>
                     A dispensar
                   </th>
                 </tr>
@@ -194,7 +244,7 @@ export function FlujoDispensacion({
                         marcado ? 'bg-red-50 outline-2 -outline-offset-2 outline-red-500' : ''
                       }
                     >
-                      <td className="px-3 py-1.5">
+                      <td className={CLASE_TD}>
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-medium">{item.producto.nombre}</span>
                           <span className="font-mono text-xs text-slate-500">
@@ -213,11 +263,11 @@ export function FlujoDispensacion({
                           <p className="text-xs text-slate-500">{item.indicaciones}</p>
                         ) : null}
                       </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums">
+                      <td className={`${CLASE_TD} text-right tabular-nums`}>
                         {item.cantidad_prescrita}
                       </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums">{pendiente}</td>
-                      <td className="px-3 py-1.5 text-right">
+                      <td className={`${CLASE_TD} text-right tabular-nums`}>{pendiente}</td>
+                      <td className={`${CLASE_TD} text-right`}>
                         {pendiente > 0 ? (
                           <>
                             <input
@@ -306,7 +356,7 @@ export function FlujoDispensacion({
         <h2 id="paso-5" className="text-sm font-semibold text-slate-800">
           5. Confirmar dispensación
         </h2>
-        {finalizada ? null : (
+        {finalizada || congelado ? null : (
           <div ref={confirmarRef} className="flex flex-wrap items-center gap-2">
             <Button
               pending={confirmar.pendiente}
@@ -320,70 +370,49 @@ export function FlujoDispensacion({
             ) : null}
           </div>
         )}
-        {errConfirmar ? (
-          errorRed ? (
-            <ErrorBanner
-              error={errConfirmar}
-              titulo={TITULO_ERROR_RED}
-              onReintentar={() => void confirmar.ejecutar()}
-            />
-          ) : (
-            <ErrorBanner error={errConfirmar} titulo="No se registró la dispensación" />
-          )
+        {congelado ? (
+          <ErrorBanner
+            error={errorConfirmar?.error ?? incierto}
+            titulo={TITULO_ERROR_RED}
+            extra={
+              <div className="flex flex-col gap-2">
+                <p>Los datos quedan bloqueados para reintentar exactamente el mismo envío.</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    tamano="sm"
+                    pending={confirmar.pendiente}
+                    onClick={() => void confirmar.ejecutar()}
+                  >
+                    Reintentar
+                  </Button>
+                  <Button
+                    tamano="sm"
+                    variante="peligroSecundario"
+                    disabled={confirmar.pendiente}
+                    onClick={() => setDescartando(true)}
+                  >
+                    Descartar y empezar de nuevo
+                  </Button>
+                </div>
+              </div>
+            }
+          />
+        ) : errConfirmar ? (
+          <ErrorBanner error={errConfirmar} titulo="No se registró la dispensación" />
         ) : null}
+        <DialogoConfirmar
+          abierto={descartando}
+          titulo="¿Descartar la dispensación sin confirmar?"
+          texto={TEXTO_DESCARTAR}
+          etiquetaConfirmar="Descartar"
+          variante="peligro"
+          onConfirmar={descartar}
+          onCerrar={() => setDescartando(false)}
+        />
         <div aria-live="polite">
           {resultado ? <Resultado {...resultado} onNueva={onNueva} /> : null}
         </div>
       </section>
     </>
-  );
-}
-
-function Resultado({
-  dispensacion: d,
-  replayed,
-  onNueva,
-}: {
-  dispensacion: Dispensacion;
-  replayed: boolean;
-  onNueva: () => void;
-}) {
-  const pendiente = d.estado === 'PENDIENTE_AUTORIZACION';
-  return (
-    <div
-      className={`flex flex-col gap-2 rounded-md border p-3 ${
-        pendiente ? 'border-amber-400 bg-amber-50' : 'border-emerald-300 bg-emerald-50'
-      }`}
-    >
-      {pendiente ? (
-        <>
-          <p className="text-base font-semibold text-amber-900">
-            Dispensación #{d.id}: pendiente de autorización por un regente distinto
-          </p>
-          <p className="text-sm text-amber-900">
-            No se descontó stock. Se entregará cuando otro regente la autorice.
-          </p>
-        </>
-      ) : (
-        <p className="text-base font-semibold text-emerald-900">
-          Dispensación #{d.id} confirmada. Lotes descontados:
-        </p>
-      )}
-      {replayed ? (
-        <p className="text-sm text-slate-700">
-          Esta dispensación ya estaba registrada; se muestra el resultado original.
-        </p>
-      ) : null}
-      <TablaLotes
-        items={d.items}
-        detalles={d.detalles}
-        sinLotes={pendiente ? 'Se asignará al autorizar.' : 'Sin lotes.'}
-      />
-      <div>
-        <Button autoFocus onClick={onNueva}>
-          Nueva dispensación
-        </Button>
-      </div>
-    </div>
   );
 }

@@ -72,11 +72,19 @@ export async function rechazarDispensacion(id: number, motivo: string): Promise<
   return r.data;
 }
 
-/** AÚN NO EXISTE en el backend (mock MSW). */
+/** Fila del listado: el recurso más quien dispensó y SIN paciente (solo `paciente_id`). */
+export type DispensacionListado = Dispensacion & {
+  dispensado_por?: { id: number; nombre: string };
+};
+
+/**
+ * Listado paginado (`created_at` ascendente, desempate por id). Llega en el próximo commit
+ * del backend: hasta entonces responde 404/405 y la UI debe degradar (ver PanelPendientes).
+ */
 export function listarDispensaciones(
   filtros: FiltrosDispensaciones = {},
   signal?: AbortSignal,
-): Promise<Paginado<Dispensacion>> {
+): Promise<Paginado<DispensacionListado>> {
   return peticion('/dispensaciones', { query: filtros, ...(signal ? { signal } : {}) });
 }
 

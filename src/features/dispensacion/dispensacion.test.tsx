@@ -5,25 +5,34 @@ import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import { EXISTENCIAS } from '../../mocks/datos';
 import { reiniciarDispensaciones } from '../../mocks/handlers/dispensaciones';
 import { server } from '../../mocks/server';
-import { api } from '../../mocks/utilidades';
+import { api, errorApi } from '../../mocks/utilidades';
 import { renderConProveedores } from '../../test/render';
 import PantallaDispensacion from '.';
-import { TITULO_ERROR_RED } from './FlujoDispensacion';
+import { TEXTO_DESCARTAR, TITULO_ERROR_RED } from './FlujoDispensacion';
+import { CLAVE_INTENTO, serializarSolicitud } from './logica';
 
 beforeEach(() => reiniciarDispensaciones());
 
-/** Captura las Idempotency-Key enviadas; `fallar(n)` decide si la petición n devuelve error de red. */
-function espiarCrear(fallar: (n: number) => boolean = () => false) {
+/**
+ * Captura las Idempotency-Key enviadas. `fallar(n)`: true → error de red en la petición n;
+ * una Response → esa respuesta; false/null → sigue al handler del mock.
+ */
+function espiarCrear(fallar: (n: number) => boolean | Response | null = () => false) {
   const claves: (string | null)[] = [];
   server.use(
     http.post(api('/dispensaciones'), ({ request }) => {
       claves.push(request.headers.get('Idempotency-Key'));
-      if (fallar(claves.length)) return HttpResponse.error();
+      const f = fallar(claves.length);
+      if (f === true) return HttpResponse.error();
+      if (f instanceof Response) return f;
       return undefined; // sigue al handler del mock
     }),
   );
   return claves;
 }
+
+const leerIntentoGuardado = () =>
+  JSON.parse(sessionStorage.getItem(CLAVE_INTENTO) ?? 'null') as { clave: string } | null;
 
 async function hastaPrevisualizar(
   u: UserEvent,
@@ -101,9 +110,13 @@ describe('dispensación', () => {
     expect(claves[1]).toBe(claves[0]);
   });
 
-  it('si cambian las cantidades tras un fallo, se envía una clave nueva', async () => {
+  it('un 4xx de negocio no congela: se corrige y se envía con clave nueva', async () => {
     const u = userEvent.setup();
-    const claves = espiarCrear((n) => n === 1);
+    const claves = espiarCrear((n) =>
+      n === 1
+        ? errorApi(409, 'STOCK_INSUFICIENTE', 'x', { prescripcion_item_id: 11, disponible: 0 })
+        : null,
+    );
     renderConProveedores(<PantallaDispensacion />, { rol: 'auxiliar_farmacia' });
     await hastaPrevisualizar(u);
     await u.click(screen.getByRole('button', { name: 'Confirmar dispensación' }));
@@ -197,5 +210,135 @@ describe('dispensación', () => {
     renderConProveedores(<PantallaDispensacion />, { rol: 'auxiliar_farmacia' });
     await screen.findByRole('option', { name: /Farmacia Urgencias/ });
     await waitFor(() => expect(screen.getByLabelText('Bodega que dispensa')).toHaveValue('2'));
+  });
+
+  it('VALIDACION en bodega_id: se ve en el banner del paso', async () => {
+    server.use(
+      http.post(api('/dispensaciones/previsualizar'), () =>
+        errorApi(422, 'VALIDACION', 'x', {
+          campos: { bodega_id: ['La bodega no existe o está inactiva.'] },
+        }),
+      ),
+    );
+    const u = userEvent.setup();
+    renderConProveedores(<PantallaDispensacion />, { rol: 'auxiliar_farmacia' });
+    await u.selectOptions(
+      await screen.findByLabelText('Bodega que dispensa'),
+      await screen.findByRole('option', { name: /Farmacia Central/ }),
+    );
+    await u.type(screen.getByLabelText('Número de documento'), '9900000001{Enter}');
+    await u.click(await screen.findByRole('button', { name: /Prescripción #/ }));
+    await u.click(screen.getByRole('button', { name: 'Previsualizar' }));
+    const alerta = await screen.findByRole('alert');
+    expect(alerta).toHaveTextContent('No se pudo previsualizar');
+    expect(alerta).toHaveTextContent('bodega: El valor no es válido');
+  });
+
+  it('502 al confirmar: congela, Reintentar reutiliza la clave y Descartar pide confirmación', async () => {
+    const u = userEvent.setup();
+    const claves = espiarCrear((n) =>
+      n === 1 ? errorApi(502, 'ERROR_HTTP', 'Bad gateway') : null,
+    );
+    renderConProveedores(<PantallaDispensacion />, { rol: 'auxiliar_farmacia' });
+    await hastaPrevisualizar(u);
+    await u.click(screen.getByRole('button', { name: 'Confirmar dispensación' }));
+    const alerta = await screen.findByRole('alert');
+    expect(alerta).toHaveTextContent(TITULO_ERROR_RED);
+
+    // Cuerpo congelado: cantidades, bodega y prescripción
+    expect(screen.getByLabelText('Cantidad a dispensar de Acetaminofén 500 mg')).toBeDisabled();
+    expect(screen.getByLabelText('Bodega que dispensa')).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Prescripción #/ })).toBeDisabled();
+    expect(
+      screen.queryByRole('button', { name: 'Confirmar dispensación' }),
+    ).not.toBeInTheDocument();
+    expect(leerIntentoGuardado()?.clave).toBe(claves[0]);
+
+    // Descartar pide confirmación y explica el riesgo; cancelar no cambia nada
+    await u.click(within(alerta).getByRole('button', { name: 'Descartar y empezar de nuevo' }));
+    const dialogo = await screen.findByRole('dialog');
+    expect(dialogo).toHaveTextContent(TEXTO_DESCARTAR);
+    await u.click(within(dialogo).getByRole('button', { name: 'Cancelar' }));
+    expect(leerIntentoGuardado()).not.toBeNull();
+
+    await u.click(within(alerta).getByRole('button', { name: 'Reintentar' }));
+    expect(await screen.findByText(/Dispensación #\d+ confirmada/)).toBeInTheDocument();
+    expect(claves).toHaveLength(2);
+    expect(claves[1]).toBe(claves[0]);
+    expect(leerIntentoGuardado()).toBeNull();
+  });
+
+  it('502 y Descartar confirmado: limpia el intento y vuelve a la búsqueda', async () => {
+    const u = userEvent.setup();
+    espiarCrear(() => errorApi(500, 'ERROR_INTERNO', 'x'));
+    renderConProveedores(<PantallaDispensacion />, { rol: 'auxiliar_farmacia' });
+    await hastaPrevisualizar(u);
+    await u.click(screen.getByRole('button', { name: 'Confirmar dispensación' }));
+    const alerta = await screen.findByRole('alert');
+    await u.click(within(alerta).getByRole('button', { name: 'Descartar y empezar de nuevo' }));
+    await u.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Descartar' }),
+    );
+    expect(leerIntentoGuardado()).toBeNull();
+    expect(screen.getByLabelText('Número de documento')).toHaveValue('');
+    expect(screen.getByLabelText('Bodega que dispensa')).toBeEnabled();
+  });
+
+  it('tras recargar con un intento pendiente: ofrece Reintentar con la misma clave', async () => {
+    const cuerpo = {
+      paciente_id: 1,
+      prescripcion_id: 1,
+      bodega_id: 2,
+      items: [{ prescripcion_item_id: 11, cantidad: 5 }],
+    };
+    sessionStorage.setItem(
+      CLAVE_INTENTO,
+      JSON.stringify({ clave: 'clave-guardada', firmaCuerpo: serializarSolicitud(cuerpo), cuerpo }),
+    );
+    let consultasPacientes = 0;
+    server.events.on('request:start', ({ request }) => {
+      if (new URL(request.url).pathname.includes('/pacientes')) consultasPacientes++;
+    });
+    const claves = espiarCrear();
+    const u = userEvent.setup();
+    renderConProveedores(<PantallaDispensacion />, { rol: 'auxiliar_farmacia' });
+    const aviso = await screen.findByRole('region', { name: 'Hay una dispensación sin confirmar' });
+    await u.click(within(aviso).getByRole('button', { name: 'Reintentar' }));
+    expect(await screen.findByText(/Dispensación #\d+ confirmada/)).toBeInTheDocument();
+    expect(claves).toEqual(['clave-guardada']);
+    expect(sessionStorage.getItem(CLAVE_INTENTO)).toBeNull();
+    // RN-10: recuperar no consulta pacientes
+    expect(consultasPacientes).toBe(0);
+    server.events.removeAllListeners();
+  });
+
+  it('paciente enmascarado: distintivo y valores tal cual', async () => {
+    server.use(
+      http.post(api('/pacientes/buscar'), () =>
+        HttpResponse.json({
+          data: [
+            {
+              id: 1,
+              tipo_documento: 'CC',
+              numero_documento: '******0001',
+              nombres: 'A***',
+              apellidos: 'S***',
+              fecha_nacimiento: '1985',
+              telefono: '*******001',
+              correo: 'a***@***',
+              direccion: null,
+              enmascarado: true,
+            },
+          ],
+        }),
+      ),
+    );
+    const u = userEvent.setup();
+    renderConProveedores(<PantallaDispensacion />, { rol: 'auxiliar_farmacia' });
+    await u.type(await screen.findByLabelText('Número de documento'), '9900000001{Enter}');
+    const lista = await screen.findByRole('list', { name: 'Pacientes encontrados' });
+    expect(within(lista).getByText('Datos enmascarados')).toBeInTheDocument();
+    expect(within(lista).getByText('CC ******0001')).toBeInTheDocument();
+    expect(within(lista).getByText('Nac. 1985')).toBeInTheDocument();
   });
 });

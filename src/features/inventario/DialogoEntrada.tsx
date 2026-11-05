@@ -1,16 +1,16 @@
 // Entrada de inventario (solo regente): lote existente o nuevo
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useId, useState } from 'react';
+import { useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import { alertasKeys } from '../../api/endpoints/alertas';
-import { inventarioKeys, registrarEntrada } from '../../api/endpoints/inventario';
-import { kardexKeys } from '../../api/endpoints/kardex';
+import { registrarEntrada } from '../../api/endpoints/inventario';
 import { manejarErrorDeFormulario } from '../../api/errores';
+import { invalidarStock } from '../../api/invalidaciones';
 import type { EntradaInventario } from '../../api/tipos';
 import { Button } from '../../components/ui/Button';
+import { Dialogo } from '../../components/ui/Dialogo';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Field, Input, Select } from '../../components/ui/Field';
 import { useAccionUnica } from '../../components/ui/useAccionUnica';
@@ -77,7 +77,6 @@ interface Props {
 }
 
 export function DialogoEntrada({ bodegaId, productoId, onCerrar }: Props) {
-  const uid = useId();
   const queryClient = useQueryClient();
   const bodegas = useBodegas();
   const productos = useProductos();
@@ -112,11 +111,7 @@ export function DialogoEntrada({ bodegaId, productoId, onCerrar }: Props) {
       toast.success(
         `Entrada registrada: ${r.producto.codigo} lote ${r.lote.codigo} en ${r.bodega.codigo} queda en ${r.entrada.saldo_posterior}${r.entrada.lote_creado ? ' (lote nuevo)' : ''}.`,
       );
-      void Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventarioKeys.todo }),
-        queryClient.invalidateQueries({ queryKey: kardexKeys.todo }),
-        queryClient.invalidateQueries({ queryKey: alertasKeys.todo }),
-      ]);
+      void invalidarStock(queryClient);
       onCerrar();
     } catch (e) {
       const pendiente = manejarErrorDeFormulario(e, setError, {
@@ -131,122 +126,107 @@ export function DialogoEntrada({ bodegaId, productoId, onCerrar }: Props) {
     }
   });
 
-  const [previo] = useState(() => document.activeElement as HTMLElement | null);
-  useEffect(() => () => previo?.focus(), [previo]);
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
-      onKeyDown={(e) => {
-        if (e.key === 'Escape' && !enviar.pendiente) {
-          e.stopPropagation();
-          onCerrar();
-        }
-      }}
+    <Dialogo
+      abierto
+      onCerrar={onCerrar}
+      bloquearCierre={enviar.pendiente}
+      titulo="Registrar entrada"
+      ancho="lg"
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={`${uid}-titulo`}
-        className="max-h-full w-full max-w-lg overflow-y-auto rounded-lg bg-white p-4 shadow-xl"
+      <form
+        noValidate
+        className="grid gap-3 sm:grid-cols-2"
+        onSubmit={(e) => void handleSubmit((d) => enviar.ejecutar(d))(e)}
       >
-        <h2 id={`${uid}-titulo`} className="text-base font-semibold">
-          Registrar entrada
-        </h2>
-        <form
-          noValidate
-          className="mt-3 grid gap-3 sm:grid-cols-2"
-          onSubmit={(e) => void handleSubmit((d) => enviar.ejecutar(d))(e)}
-        >
-          <Field label="Bodega" error={errors.bodega_id?.message}>
-            <Select autoFocus {...register('bodega_id', { setValueAs: aNumero })}>
-              <option value="">Elige…</option>
-              {bodegas.data?.data.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.codigo} · {b.nombre}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Producto" error={errors.producto_id?.message}>
-            <Select
-              {...register('producto_id', {
-                setValueAs: aNumero,
-                onChange: () => setValue('lote_id', undefined),
-              })}
-            >
-              <option value="">Elige…</option>
-              {productos.data?.data.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.codigo} · {p.nombre}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Cantidad" error={errors.cantidad?.message}>
-            <Input
-              type="number"
-              min={1}
-              step={1}
-              inputMode="numeric"
-              className="tabular-nums"
-              {...register('cantidad', { valueAsNumber: true })}
-            />
-          </Field>
-          <fieldset className="flex flex-col gap-1">
-            <legend className="text-sm font-medium text-slate-700">Lote</legend>
-            <div className="flex h-9 items-center gap-3 text-sm">
-              <label className="flex items-center gap-1">
-                <input type="radio" value="existente" {...register('modo')} /> Existente
-              </label>
-              <label className="flex items-center gap-1">
-                <input type="radio" value="nuevo" {...register('modo')} /> Nuevo
-              </label>
-            </div>
-          </fieldset>
-          {modo === 'existente' ? (
-            <Field
-              label="Lote existente"
-              className="sm:col-span-2"
-              error={errors.lote_id?.message}
-              ayuda="Si el lote no aparece, regístralo como nuevo con su código y fecha."
-            >
-              <Select disabled={!productoElegido} {...register('lote_id', { setValueAs: aNumero })}>
-                <option value="">
-                  {productoElegido ? 'Elige un lote…' : 'Elige primero un producto'}
-                </option>
-                {lotesVigentes?.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.codigo} (vence {formatearFecha(l.fecha_vencimiento)})
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          ) : (
-            <>
-              <Field label="Código del lote" error={errors.codigo?.message}>
-                <Input maxLength={50} autoComplete="off" {...register('codigo')} />
-              </Field>
-              <Field label="Fecha de vencimiento" error={errors.fecha_vencimiento?.message}>
-                <Input type="date" {...register('fecha_vencimiento')} />
-              </Field>
-            </>
-          )}
-          {errorServidor ? (
-            <div className="sm:col-span-2">
-              <ErrorBanner error={errorServidor} />
-            </div>
-          ) : null}
-          <div className="flex justify-end gap-2 sm:col-span-2">
-            <Button variante="secundario" onClick={onCerrar} disabled={enviar.pendiente}>
-              Cancelar
-            </Button>
-            <Button type="submit" pending={enviar.pendiente}>
-              Registrar entrada
-            </Button>
+        <Field label="Bodega" error={errors.bodega_id?.message}>
+          <Select {...register('bodega_id', { setValueAs: aNumero })}>
+            <option value="">Elige…</option>
+            {bodegas.data?.data.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.codigo} · {b.nombre}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Producto" error={errors.producto_id?.message}>
+          <Select
+            {...register('producto_id', {
+              setValueAs: aNumero,
+              onChange: () => setValue('lote_id', undefined),
+            })}
+          >
+            <option value="">Elige…</option>
+            {productos.data?.data.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.codigo} · {p.nombre}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Cantidad" error={errors.cantidad?.message}>
+          <Input
+            type="number"
+            min={1}
+            step={1}
+            inputMode="numeric"
+            className="tabular-nums"
+            {...register('cantidad', { valueAsNumber: true })}
+          />
+        </Field>
+        <fieldset className="flex flex-col gap-1">
+          <legend className="text-sm font-medium text-slate-700">Lote</legend>
+          <div className="flex h-9 items-center gap-3 text-sm">
+            <label className="flex items-center gap-1">
+              <input type="radio" value="existente" {...register('modo')} /> Existente
+            </label>
+            <label className="flex items-center gap-1">
+              <input type="radio" value="nuevo" {...register('modo')} /> Nuevo
+            </label>
           </div>
-        </form>
-      </div>
-    </div>
+        </fieldset>
+        {modo === 'existente' ? (
+          <Field
+            label="Lote existente"
+            className="sm:col-span-2"
+            error={errors.lote_id?.message}
+            ayuda="Si el lote no aparece, regístralo como nuevo con su código y fecha."
+          >
+            <Select disabled={!productoElegido} {...register('lote_id', { setValueAs: aNumero })}>
+              <option value="">
+                {productoElegido ? 'Elige un lote…' : 'Elige primero un producto'}
+              </option>
+              {lotesVigentes?.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.codigo} (vence {formatearFecha(l.fecha_vencimiento)})
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : (
+          <>
+            <Field label="Código del lote" error={errors.codigo?.message}>
+              <Input maxLength={50} autoComplete="off" {...register('codigo')} />
+            </Field>
+            <Field label="Fecha de vencimiento" error={errors.fecha_vencimiento?.message}>
+              <Input type="date" {...register('fecha_vencimiento')} />
+            </Field>
+          </>
+        )}
+        {errorServidor ? (
+          <div className="sm:col-span-2">
+            <ErrorBanner error={errorServidor} />
+          </div>
+        ) : null}
+        <div className="flex justify-end gap-2 sm:col-span-2">
+          <Button variante="secundario" onClick={onCerrar} disabled={enviar.pendiente}>
+            Cancelar
+          </Button>
+          <Button type="submit" pending={enviar.pendiente}>
+            Registrar entrada
+          </Button>
+        </div>
+      </form>
+    </Dialogo>
   );
 }

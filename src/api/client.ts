@@ -15,6 +15,8 @@ export class ApiError extends Error {
   readonly mensaje: string;
   readonly detalles: Detalles;
   readonly retryAfterSeg?: number;
+  /** Cabecera `X-Correlation-Id` (o `X-Request-Id`) de la respuesta: código de seguimiento. */
+  readonly correlacionId?: string;
   /** `detalles.campos` de un 422 VALIDACION (clave con punto → mensajes). */
   readonly campos?: Record<string, string[]>;
 
@@ -24,6 +26,7 @@ export class ApiError extends Error {
     mensaje: string;
     detalles?: Detalles;
     retryAfterSeg?: number;
+    correlacionId?: string;
   }) {
     super(datos.mensaje);
     this.name = 'ApiError';
@@ -32,6 +35,7 @@ export class ApiError extends Error {
     this.mensaje = datos.mensaje;
     this.detalles = datos.detalles ?? {};
     if (datos.retryAfterSeg !== undefined) this.retryAfterSeg = datos.retryAfterSeg;
+    if (datos.correlacionId) this.correlacionId = datos.correlacionId;
     const campos = this.detalles.campos;
     if (campos && typeof campos === 'object' && !Array.isArray(campos)) {
       this.campos = campos as Record<string, string[]>;
@@ -115,6 +119,14 @@ function leerRetryAfter(res: Response): number | undefined {
   return Number.isFinite(seg) && seg >= 0 ? seg : undefined;
 }
 
+/** Solo se acepta un identificador con forma segura (UUID o similar). */
+const CORRELACION_VALIDA = /^[A-Za-z0-9._-]{8,64}$/;
+
+function leerCorrelacion(res: Response): string | undefined {
+  const valor = res.headers.get('X-Correlation-Id') ?? res.headers.get('X-Request-Id');
+  return valor && CORRELACION_VALIDA.test(valor) ? valor : undefined;
+}
+
 async function errorDesdeRespuesta(res: Response): Promise<ApiError> {
   const cuerpo = (await res.json().catch(() => null)) as CuerpoError | null;
   const err = cuerpo?.error;
@@ -122,6 +134,7 @@ async function errorDesdeRespuesta(res: Response): Promise<ApiError> {
     err?.detalles && typeof err.detalles === 'object' && !Array.isArray(err.detalles)
       ? (err.detalles as Detalles)
       : {};
+  const correlacionId = leerCorrelacion(res);
   let retryAfterSeg = leerRetryAfter(res);
   if (retryAfterSeg === undefined && typeof detalles.segundos === 'number') {
     retryAfterSeg = detalles.segundos;
@@ -137,6 +150,7 @@ async function errorDesdeRespuesta(res: Response): Promise<ApiError> {
     mensaje: typeof err?.mensaje === 'string' ? err.mensaje : `Error HTTP ${res.status}`,
     detalles,
     ...(retryAfterSeg !== undefined ? { retryAfterSeg } : {}),
+    ...(correlacionId ? { correlacionId } : {}),
   });
 }
 

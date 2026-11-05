@@ -12,6 +12,7 @@ import { Cargando } from '../../components/ui/Cargando';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { EstadoVacio } from '../../components/ui/EstadoVacio';
 import { Paginacion } from '../../components/ui/Paginacion';
+import { CLASE_CONTENEDOR_TABLA, CLASE_TD, CLASE_TH, CLASE_THEAD } from '../../components/ui/Table';
 import { diasHastaVencer, formatearFecha } from '../../lib/fechas';
 import { DialogoAjuste } from './DialogoAjuste';
 import { DialogoEntrada } from './DialogoEntrada';
@@ -39,30 +40,30 @@ interface PropsTabla {
 function TablaExistencias({ filas, puedeRegistrar, onAjustar }: PropsTabla) {
   const hoy = new Date();
   return (
-    <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+    <div className={CLASE_CONTENEDOR_TABLA}>
       <table className="min-w-full text-sm">
         <caption className="sr-only">Existencias de inventario</caption>
-        <thead className="bg-slate-100 text-xs tracking-wide text-slate-600 uppercase">
+        <thead className={CLASE_THEAD}>
           <tr>
-            <th scope="col" className="px-3 py-2 text-left font-semibold">
+            <th scope="col" className={`${CLASE_TH} text-left`}>
               Bodega
             </th>
-            <th scope="col" className="px-3 py-2 text-left font-semibold">
+            <th scope="col" className={`${CLASE_TH} text-left`}>
               Producto
             </th>
-            <th scope="col" className="px-3 py-2 text-left font-semibold">
+            <th scope="col" className={`${CLASE_TH} text-left`}>
               Lote
             </th>
-            <th scope="col" className="px-3 py-2 text-left font-semibold">
+            <th scope="col" className={`${CLASE_TH} text-left`}>
               Vencimiento
             </th>
-            <th scope="col" className="px-3 py-2 text-right font-semibold">
+            <th scope="col" className={`${CLASE_TH} text-right`}>
               Cantidad
             </th>
-            <th scope="col" className="px-3 py-2 text-left font-semibold">
+            <th scope="col" className={`${CLASE_TH} text-left`}>
               Estado
             </th>
-            <th scope="col" className="px-3 py-2 text-right font-semibold">
+            <th scope="col" className={`${CLASE_TH} text-right`}>
               <span className="sr-only">Acciones</span>
             </th>
           </tr>
@@ -75,39 +76,37 @@ function TablaExistencias({ filas, puedeRegistrar, onAjustar }: PropsTabla) {
             return (
               <tr
                 key={e.id}
-                className={
-                  e.vencido
-                    ? 'border-l-4 border-l-red-500 bg-red-50/70 hover:bg-red-50'
-                    : 'hover:bg-slate-50'
-                }
+                className={e.vencido ? 'bg-peligro-50/70 hover:bg-peligro-50' : 'hover:bg-slate-50'}
               >
-                <td className="px-3 py-1.5 whitespace-nowrap" title={e.bodega.nombre}>
+                <td className={`${CLASE_TD} whitespace-nowrap`} title={e.bodega.nombre}>
                   {e.bodega.codigo}
                   <span className="ml-1 text-slate-500">{e.bodega.nombre}</span>
                 </td>
-                <td className="px-3 py-1.5">
+                <td className={CLASE_TD}>
                   <span className="font-medium">{e.producto.codigo}</span>
                   <span className="ml-1 text-slate-600">{e.producto.nombre}</span>
                 </td>
-                <td className="px-3 py-1.5 font-mono text-xs whitespace-nowrap">{e.lote.codigo}</td>
-                <td className="px-3 py-1.5 whitespace-nowrap">
+                <td className={`${CLASE_TD} font-mono text-xs whitespace-nowrap`}>
+                  {e.lote.codigo}
+                </td>
+                <td className={`${CLASE_TD} whitespace-nowrap`}>
                   {formatearFecha(e.fecha_vencimiento)}
                   <span
-                    className={`ml-1.5 text-xs ${e.vencido ? 'font-medium text-red-700' : 'text-slate-500'}`}
+                    className={`ml-1.5 text-xs ${e.vencido ? 'font-medium text-peligro-700' : 'text-slate-500'}`}
                   >
                     {textoDias(dias)}
                   </span>
                 </td>
-                <td className="px-3 py-1.5 text-right font-medium tabular-nums">{e.cantidad}</td>
-                <td className="px-3 py-1.5">
+                <td className={`${CLASE_TD} text-right font-medium tabular-nums`}>{e.cantidad}</td>
+                <td className={CLASE_TD}>
                   <Badge tono={estado.tono}>{estado.texto}</Badge>
                 </td>
-                <td className="px-3 py-1.5 text-right whitespace-nowrap">
+                <td className={`${CLASE_TD} text-right whitespace-nowrap`}>
                   <div className="flex justify-end gap-1">
                     <Link
                       to={enlaceKardex(e)}
                       aria-label={`Ver kardex de ${descripcion}`}
-                      className="inline-flex h-8 items-center rounded-md px-2 text-sm font-medium text-marca-700 hover:bg-slate-200/70 hover:underline"
+                      className="inline-flex h-7 items-center rounded-md px-2 text-sm font-medium text-marca-700 hover:bg-slate-200/70 hover:underline"
                     >
                       Ver kardex
                     </Link>
@@ -115,6 +114,7 @@ function TablaExistencias({ filas, puedeRegistrar, onAjustar }: PropsTabla) {
                       <Button
                         variante="secundario"
                         tamano="sm"
+                        className="h-7!"
                         aria-label={`Ajustar ${descripcion}`}
                         onClick={() => onAjustar(e)}
                       >

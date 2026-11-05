@@ -14,8 +14,11 @@ describe('lista de traslados', () => {
     const enlaces = within(tabla)
       .getAllByRole('link')
       .map((a) => a.textContent);
-    expect(enlaces).toEqual(['#2', '#1']);
-    expect(within(tabla).getByRole('link', { name: '#2' })).toHaveAttribute('href', '/traslados/2');
+    expect(enlaces).toEqual(['Traslado #2', 'Traslado #1']);
+    expect(within(tabla).getByRole('link', { name: 'Traslado #2' })).toHaveAttribute(
+      'href',
+      '/traslados/2',
+    );
 
     await usuario.selectOptions(screen.getByLabelText('Estado'), 'BORRADOR');
     await waitFor(() => expect(router.state.location.search).toBe('?estado=BORRADOR'));
@@ -24,7 +27,7 @@ describe('lista de traslados', () => {
         within(screen.getByRole('table', { name: 'Traslados' }))
           .getAllByRole('link')
           .map((a) => a.textContent),
-      ).toEqual(['#1']),
+      ).toEqual(['Traslado #1']),
     );
   });
 

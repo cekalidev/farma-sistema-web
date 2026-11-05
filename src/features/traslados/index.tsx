@@ -23,13 +23,13 @@ const POR_PAGINA = 20;
 const COLUMNAS: Columna<Traslado>[] = [
   {
     clave: 'id',
-    titulo: '#',
+    titulo: 'Traslado',
     celda: (t) => (
       <Link
         to={`/traslados/${t.id}`}
-        className="font-medium text-marca-700 underline-offset-2 hover:underline"
+        className="-my-1.5 inline-block py-1.5 font-medium whitespace-nowrap text-marca-700 underline-offset-2 hover:underline"
       >
-        #{t.id}
+        Traslado #{t.id}
       </Link>
     ),
   },
@@ -38,7 +38,10 @@ const COLUMNAS: Columna<Traslado>[] = [
     clave: 'ruta',
     titulo: 'Origen → destino',
     celda: (t) => (
-      <span title={`${t.bodega_origen.nombre} → ${t.bodega_destino.nombre}`}>
+      <span
+        className="whitespace-nowrap"
+        title={`${t.bodega_origen.nombre} → ${t.bodega_destino.nombre}`}
+      >
         {t.bodega_origen.codigo} → {t.bodega_destino.codigo}
       </span>
     ),
@@ -51,7 +54,9 @@ const COLUMNAS: Columna<Traslado>[] = [
     celda: (t) =>
       t.discrepancias.some((d) => d.estado === 'PENDIENTE') ? (
         <Badge tono="ambar">Discrepancias pendientes</Badge>
-      ) : null,
+      ) : (
+        <span className="text-slate-500">—</span>
+      ),
   },
 ];
 

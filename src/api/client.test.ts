@@ -131,4 +131,23 @@ describe('client', () => {
     await peticion('/prueba', { query: { a: 1, b: undefined, c: '', d: null, e: 'x' } });
     expect(new URL(url).search).toBe('?a=1&e=x');
   });
+
+  it('guarda X-Correlation-Id (o X-Request-Id) como correlacionId', async () => {
+    const id = '3f2c9a1e-5b7d-4c11-9e0f-2a6b8c4d1e70';
+    server.use(
+      http.get(api('/prueba'), () =>
+        errorApi(500, 'ERROR_INTERNO', 'Error.', {}, { 'X-Correlation-Id': id }),
+      ),
+      http.get(api('/otra'), () =>
+        errorApi(404, 'NO_ENCONTRADO', 'No.', {}, { 'X-Request-Id': 'req-00000042' }),
+      ),
+      http.get(api('/rara'), () =>
+        errorApi(404, 'NO_ENCONTRADO', 'No.', {}, { 'X-Correlation-Id': '<script>' }),
+      ),
+    );
+    await expect(peticion('/prueba')).rejects.toMatchObject({ correlacionId: id });
+    await expect(peticion('/otra')).rejects.toMatchObject({ correlacionId: 'req-00000042' });
+    const rara = await peticion('/rara').catch((e: unknown) => e);
+    expect((rara as ApiError).correlacionId).toBeUndefined();
+  });
 });

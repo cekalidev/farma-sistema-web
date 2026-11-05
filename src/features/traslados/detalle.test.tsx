@@ -1,10 +1,12 @@
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { delay, http } from 'msw';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
 import type { Traslado } from '../../api/tipos';
-import { TRASLADOS } from '../../mocks/datos';
+import { MOVIMIENTOS, TRASLADOS } from '../../mocks/datos';
 import { reiniciarTraslados } from '../../mocks/handlers/traslados';
 import { server } from '../../mocks/server';
+import { api } from '../../mocks/utilidades';
 import { renderApp } from '../../test/render';
 
 const traslado2 = () => TRASLADOS.find((t) => t.id === 2) as Traslado;
@@ -53,7 +55,7 @@ describe('detalle de traslado', () => {
     const usuario = userEvent.setup();
     renderApp({ rol: 'auxiliar_farmacia', ruta: '/traslados/2' });
     await usuario.click(await screen.findByRole('button', { name: 'Despachar' }));
-    const dialogo = screen.getByRole('alertdialog', { name: 'Despachar traslado #2' });
+    const dialogo = screen.getByRole('dialog', { name: 'Despachar traslado #2' });
     const confirmar = within(dialogo).getByRole('button', { name: 'Sí, despachar' });
     act(() => {
       confirmar.click();
@@ -140,7 +142,7 @@ describe('detalle de traslado', () => {
     Object.assign(traslado2(), { estado: 'APROBADO' });
     renderApp({ rol: 'auditor', ruta: '/traslados/2' });
     expect(await screen.findByRole('heading', { name: 'Traslado #2' })).toBeInTheDocument();
-    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Acciones del traslado' })).not.toBeInTheDocument();
     for (const nombre of ['Solicitar', 'Aprobar', 'Despachar', 'Recibir', 'Anular']) {
       expect(screen.queryByRole('button', { name: nombre })).not.toBeInTheDocument();
     }
@@ -155,5 +157,69 @@ describe('detalle de traslado', () => {
     await usuario.click(within(dialogo).getByRole('button', { name: 'Anular traslado' }));
     expect(await screen.findByText('Anulado', { selector: 'span.rounded' })).toBeInTheDocument();
     expect(posts).toEqual(['/api/v1/traslados/1/anular']);
+  });
+
+  it('despachar deja la SALIDA_TRASLADO en el kardex simulado', async () => {
+    Object.assign(traslado2(), { estado: 'APROBADO', aprobado_por_id: 2 });
+    const usuario = userEvent.setup();
+    renderApp({ rol: 'auxiliar_farmacia', ruta: '/traslados/2' });
+    await usuario.click(await screen.findByRole('button', { name: 'Despachar' }));
+    const dialogo = screen.getByRole('dialog', { name: 'Despachar traslado #2' });
+    await usuario.click(within(dialogo).getByRole('button', { name: 'Sí, despachar' }));
+    expect(
+      await screen.findByText('En tránsito', { selector: 'span.rounded' }),
+    ).toBeInTheDocument();
+    const salidas = MOVIMIENTOS.filter((m) => m.tipo === 'SALIDA_TRASLADO');
+    expect(salidas).toHaveLength(traslado2().items.length);
+    expect(salidas[0]).toMatchObject({
+      cantidad: -20,
+      bodega_id: 1,
+      documento: { tipo: 'traslado', id: 2 },
+    });
+  });
+
+  it('con el diálogo de despacho abierto o enviándose, "Anular" queda deshabilitado', async () => {
+    Object.assign(traslado2(), { estado: 'APROBADO', aprobado_por_id: 2 });
+    server.use(
+      http.post(api('/traslados/:id/despachar'), async () => {
+        await delay('infinite');
+      }),
+    );
+    const usuario = userEvent.setup();
+    renderApp({ rol: 'auxiliar_farmacia', ruta: '/traslados/2' });
+    const anular = await screen.findByRole('button', { name: 'Anular' });
+    expect(anular).toBeEnabled();
+    await usuario.click(screen.getByRole('button', { name: 'Despachar' }));
+    expect(anular).toBeDisabled();
+    const dialogo = screen.getByRole('dialog', { name: 'Despachar traslado #2' });
+    const confirmar = within(dialogo).getByRole('button', { name: 'Sí, despachar' });
+    await usuario.click(confirmar);
+    await waitFor(() => expect(confirmar).toHaveAttribute('aria-disabled', 'true'));
+    expect(anular).toBeDisabled();
+  });
+
+  it('con la recepción abierta o enviándose, las acciones quedan deshabilitadas', async () => {
+    Object.assign(traslado2(), { estado: 'EN_TRANSITO' });
+    server.use(
+      http.post(api('/traslados/:id/recibir'), async () => {
+        await delay('infinite');
+      }),
+    );
+    const usuario = userEvent.setup();
+    renderApp({ rol: 'auxiliar_farmacia', ruta: '/traslados/2' });
+    const recibir = await screen.findByRole('button', { name: 'Recibir' });
+    await usuario.click(recibir);
+    expect(recibir).toBeDisabled();
+    const confirmar = screen.getByRole('button', { name: 'Confirmar recepción' });
+    await usuario.click(confirmar);
+    await waitFor(() => expect(confirmar).toHaveAttribute('aria-disabled', 'true'));
+    expect(recibir).toBeDisabled();
+  });
+
+  it('el motivo de un botón deshabilitado queda enlazado con aria-describedby', async () => {
+    Object.assign(traslado2(), { creado_por_id: 2, solicitado_por_id: 2 });
+    renderApp({ rol: 'regente_farmacia', ruta: '/traslados/2' });
+    const aprobar = await screen.findByRole('button', { name: 'Aprobar' });
+    expect(aprobar).toHaveAccessibleDescription(/No puedes aprobar un traslado que tú solicitaste/);
   });
 });

@@ -10,17 +10,12 @@ import type {
   Usuario,
 } from '../../api/tipos';
 import { diasHastaVencer } from '../../lib/fechas';
-import { BODEGAS, EXISTENCIAS, LOTES, PRODUCTOS, TRASLADOS } from '../datos';
-import { api, autorizar, errorApi, filtroNum, paginar } from '../utilidades';
+import { BODEGAS, EXISTENCIAS, LOTES, PRODUCTOS, reiniciarDatos, TRASLADOS } from '../datos';
+import { api, autorizar, errorApi, filtroNum, paginar, registrarMovimiento } from '../utilidades';
 
-// Copias iniciales para reiniciar el estado entre tests del mismo archivo
-const TRASLADOS_INICIALES = structuredClone(TRASLADOS);
-const EXISTENCIAS_INICIALES = structuredClone(EXISTENCIAS);
-
-/** Restaura TRASLADOS y EXISTENCIAS a la semilla. */
+/** Restaura traslados, existencias y kardex a la semilla (alias de `reiniciarDatos`). */
 export function reiniciarTraslados(): void {
-  TRASLADOS.splice(0, TRASLADOS.length, ...structuredClone(TRASLADOS_INICIALES));
-  EXISTENCIAS.splice(0, EXISTENCIAS.length, ...structuredClone(EXISTENCIAS_INICIALES));
+  reiniciarDatos();
 }
 
 const ITEMS_MAXIMO = 50;
@@ -55,6 +50,43 @@ async function leerCuerpo(request: Request): Promise<Cuerpo> {
 const validacion = (campos: Record<string, string[]>) =>
   errorApi(422, 'VALIDACION', 'Los datos no son válidos.', { campos });
 
+/** Claves no documentadas → "Campo no permitido." (S-51, S-64). */
+function clavesExtra(
+  cuerpo: unknown,
+  permitidas: readonly string[],
+  prefijo = '',
+): Record<string, string[]> {
+  const campos: Record<string, string[]> = {};
+  if (!cuerpo || typeof cuerpo !== 'object' || Array.isArray(cuerpo)) return campos;
+  for (const clave of Object.keys(cuerpo)) {
+    if (!permitidas.includes(clave)) campos[`${prefijo}${clave}`] = ['Campo no permitido.'];
+  }
+  return campos;
+}
+
+/** Igual que `clavesExtra`, para cada elemento de una lista (`items.0.x`). */
+function clavesExtraLista(
+  lista: unknown,
+  permitidas: readonly string[],
+  nombre = 'items',
+): Record<string, string[]> {
+  if (!Array.isArray(lista)) return {};
+  return Object.assign(
+    {},
+    ...lista.map((it, i) => clavesExtra(it, permitidas, `${nombre}.${i}.`)),
+  ) as Record<string, string[]>;
+}
+
+const CLAVES_ITEM = ['producto_id', 'lote_id', 'cantidad'] as const;
+
+/** 422 si hay claves extra; si no, null. */
+function rechazarExtra(...grupos: Record<string, string[]>[]): Response | null {
+  const campos = Object.assign({}, ...grupos) as Record<string, string[]>;
+  return Object.keys(campos).length ? validacion(campos) : null;
+}
+
+const documento = (t: Traslado) => ({ tipo: 'traslado' as const, id: t.id });
+
 const noAutorizado = () =>
   errorApi(403, 'NO_AUTORIZADO', 'No tiene permiso para realizar esta acción.');
 
@@ -81,6 +113,12 @@ const noEncontrado = () => errorApi(404, 'NO_ENCONTRADO', 'Recurso no encontrado
 
 function bodegaResumen(id: number) {
   const b = BODEGAS.find((x) => x.id === id);
+  return b ? { id: b.id, codigo: b.codigo, nombre: b.nombre } : null;
+}
+
+/** Solo bodegas existentes y activas (S-22, S-46). */
+function bodegaActiva(id: number) {
+  const b = BODEGAS.find((x) => x.id === id && x.activa);
   return b ? { id: b.id, codigo: b.codigo, nombre: b.nombre } : null;
 }
 
@@ -202,9 +240,14 @@ export const handlersReales: HttpHandler[] = [
     const u = autorizar(request, 'traslado.operar');
     if (u instanceof Response) return u;
     const c = await leerCuerpo(request);
+    const extra = rechazarExtra(
+      clavesExtra(c, ['bodega_origen_id', 'bodega_destino_id', 'observaciones', 'items']),
+      clavesExtraLista(c.items, CLAVES_ITEM),
+    );
+    if (extra) return extra;
     const campos: Record<string, string[]> = {};
-    const origen = esEntero(c.bodega_origen_id) ? bodegaResumen(c.bodega_origen_id) : null;
-    const destino = esEntero(c.bodega_destino_id) ? bodegaResumen(c.bodega_destino_id) : null;
+    const origen = esEntero(c.bodega_origen_id) ? bodegaActiva(c.bodega_origen_id) : null;
+    const destino = esEntero(c.bodega_destino_id) ? bodegaActiva(c.bodega_destino_id) : null;
     if (!origen) campos.bodega_origen_id = ['The selected bodega origen id is invalid.'];
     if (!destino) campos.bodega_destino_id = ['The selected bodega destino id is invalid.'];
     else if (origen && origen.id === destino.id)
@@ -260,6 +303,8 @@ export const handlersReales: HttpHandler[] = [
     if (!t) return noEncontrado();
     if (t.creado_por_id !== u.id) return noAutorizado();
     const c = await leerCuerpo(request);
+    const extra = rechazarExtra(clavesExtra(c, ['items']), clavesExtraLista(c.items, CLAVES_ITEM));
+    if (extra) return extra;
     const items = validarItems(c.items);
     if (items instanceof Response) return items;
     if (t.estado !== 'BORRADOR') return transicionInvalida(t, 'editar_items');
@@ -316,7 +361,15 @@ export const handlersReales: HttpHandler[] = [
     }
     for (const it of t.items) {
       const e = existencia(t.bodega_origen_id, it, false);
-      if (e) e.cantidad -= it.cantidad;
+      if (!e) continue;
+      e.cantidad -= it.cantidad;
+      registrarMovimiento({
+        tipo: 'SALIDA_TRASLADO',
+        existencia: e,
+        cantidad: -it.cantidad,
+        usuarioId: u.id,
+        documento: documento(t),
+      });
     }
     return actualizar(t, {
       estado: 'EN_TRANSITO',
@@ -331,6 +384,11 @@ export const handlersReales: HttpHandler[] = [
     const t = buscar(params.id);
     if (!t) return noEncontrado();
     const c = await leerCuerpo(request);
+    const extra = rechazarExtra(
+      clavesExtra(c, ['items']),
+      clavesExtraLista(c.items, ['traslado_item_id', 'cantidad_recibida']),
+    );
+    if (extra) return extra;
     const filas = Array.isArray(c.items) ? (c.items as Cuerpo[]) : null;
     const campos: Record<string, string[]> = {};
     if (!filas || filas.length < 1) campos.items = ['The items field is required.'];
@@ -370,7 +428,17 @@ export const handlersReales: HttpHandler[] = [
       it.cantidad_recibida = r;
       if (r > 0) {
         const e = existencia(t.bodega_destino_id, it, true);
-        if (e) e.cantidad += r;
+        if (e) {
+          e.cantidad += r;
+          registrarMovimiento({
+            tipo: 'ENTRADA_TRASLADO',
+            existencia: e,
+            cantidad: r,
+            usuarioId: u.id,
+            documento: documento(t),
+            createdAt: marca,
+          });
+        }
       }
       if (r < it.cantidad) {
         const d: Discrepancia = {
@@ -407,6 +475,8 @@ export const handlersReales: HttpHandler[] = [
     if (!t) return noEncontrado();
     if (t.creado_por_id !== u.id && !tiene(u, 'traslado.aprobar')) return noAutorizado();
     const c = await leerCuerpo(request);
+    const extra = rechazarExtra(clavesExtra(c, ['motivo']));
+    if (extra) return extra;
     const motivo = typeof c.motivo === 'string' ? c.motivo.trim() : '';
     if (motivo.length < MOTIVO_MIN)
       return validacion({
@@ -436,7 +506,7 @@ export const handlersReales: HttpHandler[] = [
     if (!t || !d) return noEncontrado();
     if (t.solicitado_por_id === u.id) return segregacion(t.id, 'resolver_discrepancia');
     const c = await leerCuerpo(request);
-    const campos: Record<string, string[]> = {};
+    const campos: Record<string, string[]> = clavesExtra(c, ['tipo', 'motivo']);
     const tipo = TIPOS_RESOLUCION.find((x) => x === c.tipo);
     if (!tipo) campos.tipo = ['The selected tipo is invalid.'];
     const motivo = typeof c.motivo === 'string' ? c.motivo.trim() : '';
@@ -456,10 +526,21 @@ export const handlersReales: HttpHandler[] = [
       });
     }
     const item = t.items.find((it) => it.id === d.traslado_item_id);
+    let movimientoId: number | null = null;
     if (item && tipo !== 'PERDIDA') {
       const bodega = tipo === 'REINTEGRO_ORIGEN' ? t.bodega_origen_id : t.bodega_destino_id;
       const e = existencia(bodega, item, true);
-      if (e) e.cantidad += d.cantidad;
+      if (e) {
+        e.cantidad += d.cantidad;
+        // Motivo de kardex del backend (S-67); los ajustes no llevan documento (§4.3)
+        movimientoId = registrarMovimiento({
+          tipo: 'AJUSTE',
+          existencia: e,
+          cantidad: d.cantidad,
+          motivo: `Discrepancia ${d.id} del traslado ${t.id} (${tipo}): ${motivo}`,
+          usuarioId: u.id,
+        }).id;
+      }
     }
     Object.assign(d, {
       estado: 'RESUELTA',
@@ -467,6 +548,7 @@ export const handlersReales: HttpHandler[] = [
       motivo,
       resuelto_por_id: u.id,
       resuelto_en: ahora(),
+      movimiento_kardex_id: movimientoId,
     } satisfies Partial<Discrepancia>);
     if (item) item.discrepancia = d;
     t.updated_at = ahora();

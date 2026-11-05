@@ -1,7 +1,7 @@
 // Discrepancias del traslado y su resolución (regente distinto del solicitante)
 import { useState } from 'react';
 import type { Discrepancia, TipoResolucion, Traslado, Usuario } from '../../api/tipos';
-import { Badge } from '../../components/ui/Badge';
+import { EstadoBadge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { DialogoMotivo, MOTIVO_MAX_DISCREPANCIA } from '../../components/ui/DialogoMotivo';
 import { Field, Select } from '../../components/ui/Field';
@@ -25,7 +25,7 @@ function FilaPendiente({ d, onResolver }: { d: Discrepancia; onResolver: Props['
       <Field
         label={`Tipo de resolución (discrepancia #${d.id})`}
         ayuda={elegido?.ayuda ?? 'Elige cómo se resuelve el faltante.'}
-        className="w-72"
+        className="w-full max-w-72"
       >
         <Select value={tipo} onChange={(e) => setTipo(e.target.value as TipoResolucion | '')}>
           <option value="">Selecciona…</option>
@@ -73,15 +73,16 @@ export function Discrepancias({ traslado, usuario, permiso, onResolver }: Props)
             <li key={d.id} className="rounded-md border border-slate-200 bg-white p-3 text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium">#{d.id}</span>
-                {d.estado === 'PENDIENTE' ? (
-                  <Badge tono="ambar">Pendiente</Badge>
-                ) : (
-                  <Badge tono="verde">Resuelta</Badge>
-                )}
+                <EstadoBadge estado={d.estado} />
                 <span>
-                  {it
-                    ? `${it.producto.nombre} · lote ${it.lote.codigo}`
-                    : `Ítem #${d.traslado_item_id}`}
+                  {it ? (
+                    <>
+                      {it.producto.nombre} · lote{' '}
+                      <span className="font-mono whitespace-nowrap">{it.lote.codigo}</span>
+                    </>
+                  ) : (
+                    `Ítem #${d.traslado_item_id}`
+                  )}
                 </span>
                 <span className="tabular-nums">Faltan {d.cantidad} unidad(es)</span>
               </div>

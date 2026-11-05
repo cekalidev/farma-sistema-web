@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { RecepcionTraslado, Traslado } from '../../api/tipos';
 import { Button } from '../../components/ui/Button';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
+import { CLASE_CONTENEDOR_TABLA, CLASE_TD, CLASE_TH, CLASE_THEAD } from '../../components/ui/Table';
 import { useAccionUnica } from '../../components/ui/useAccionUnica';
 import { formatearFecha } from '../../lib/fechas';
 
@@ -53,7 +54,7 @@ export function Recepcion({ traslado, onConfirmar, onCancelar }: Props) {
     <form
       noValidate
       aria-labelledby="titulo-recepcion"
-      className="flex flex-col gap-3 rounded-lg border border-sky-200 bg-sky-50/40 p-4"
+      className="flex min-w-0 flex-col gap-3 rounded-lg border border-sky-200 bg-sky-50/40 p-3 sm:p-4"
       onSubmit={(e) => {
         e.preventDefault();
         setIntentado(true);
@@ -73,20 +74,21 @@ export function Recepcion({ traslado, onConfirmar, onCancelar }: Props) {
           Recibir todo completo
         </Button>
       </div>
-      <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+      <div className={CLASE_CONTENEDOR_TABLA}>
         <table className="min-w-full text-sm">
-          <thead className="bg-slate-100 text-xs text-slate-600 uppercase">
+          <caption className="sr-only">Cantidades recibidas por ítem</caption>
+          <thead className={CLASE_THEAD}>
             <tr>
-              <th scope="col" className="px-3 py-2 text-left">
+              <th scope="col" className={`${CLASE_TH} text-left`}>
                 Producto
               </th>
-              <th scope="col" className="px-3 py-2 text-left">
+              <th scope="col" className={`${CLASE_TH} hidden text-left sm:table-cell`}>
                 Lote
               </th>
-              <th scope="col" className="px-3 py-2 text-right">
+              <th scope="col" className={`${CLASE_TH} text-right`}>
                 Enviada
               </th>
-              <th scope="col" className="px-3 py-2 text-left">
+              <th scope="col" className={`${CLASE_TH} text-left`}>
                 Recibida
               </th>
             </tr>
@@ -96,16 +98,21 @@ export function Recepcion({ traslado, onConfirmar, onCancelar }: Props) {
               const error = intentado || valores[it.id] !== String(it.cantidad) ? errores[i] : null;
               const idError = `recepcion-error-${it.id}`;
               return (
-                <tr key={it.id}>
-                  <td className="px-3 py-1.5">{it.producto.nombre}</td>
-                  <td className="px-3 py-1.5">
-                    {it.lote.codigo}{' '}
+                <tr key={it.id} className="align-top">
+                  <td className={CLASE_TD}>
+                    {it.producto.nombre}
+                    <span className="block font-mono text-xs whitespace-nowrap text-slate-600 sm:hidden">
+                      {it.lote.codigo}
+                    </span>
+                  </td>
+                  <td className={`${CLASE_TD} hidden whitespace-nowrap sm:table-cell`}>
+                    <span className="font-mono text-xs">{it.lote.codigo}</span>{' '}
                     <span className="text-xs text-slate-500">
                       (vence {formatearFecha(it.lote.fecha_vencimiento)})
                     </span>
                   </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{it.cantidad}</td>
-                  <td className="px-3 py-1.5">
+                  <td className={`${CLASE_TD} text-right tabular-nums`}>{it.cantidad}</td>
+                  <td className={CLASE_TD}>
                     <input
                       type="number"
                       inputMode="numeric"
@@ -115,12 +122,15 @@ export function Recepcion({ traslado, onConfirmar, onCancelar }: Props) {
                       aria-label={`Cantidad recibida de ${it.producto.nombre} (${it.lote.codigo})`}
                       aria-invalid={error ? true : undefined}
                       aria-describedby={error ? idError : undefined}
-                      className="h-8 w-24 rounded-md border border-slate-300 px-2 text-right text-sm tabular-nums aria-[invalid=true]:border-red-600"
+                      className="h-8 w-20 rounded-md border border-slate-300 px-2 text-right text-sm tabular-nums aria-[invalid=true]:border-peligro-600"
                       value={valores[it.id] ?? ''}
                       onChange={(e) => setValores((v) => ({ ...v, [it.id]: e.target.value }))}
                     />
                     {error ? (
-                      <p id={idError} className="text-xs font-medium text-red-700">
+                      <p
+                        id={idError}
+                        className="mt-0.5 max-w-32 text-xs font-medium text-peligro-700"
+                      >
                         {error}
                       </p>
                     ) : null}
@@ -134,7 +144,7 @@ export function Recepcion({ traslado, onConfirmar, onCancelar }: Props) {
       {faltante > 0 ? (
         <p
           role="status"
-          className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          className="rounded-md border border-aviso-300 bg-aviso-50 px-3 py-2 text-sm text-aviso-900"
         >
           Se registrará una discrepancia de {faltante} unidades pendiente de resolución por un
           regente.

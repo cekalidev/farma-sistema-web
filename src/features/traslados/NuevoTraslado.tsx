@@ -140,6 +140,7 @@ function FilaItem({
   const excede = disponible !== null && Number.isFinite(cantidad) && cantidad > disponible;
   const n = indice + 1;
 
+  const loteDeshabilitado = !origenId || !productoId || lotes.isPending;
   let ayudaLote: string | undefined;
   if (!origenId) ayudaLote = 'Elige primero la bodega de origen.';
   else if (!productoId) ayudaLote = 'Elige primero el producto.';
@@ -149,7 +150,14 @@ function FilaItem({
   return (
     <fieldset className="grid gap-2 rounded-md border border-slate-200 p-3 sm:grid-cols-[1fr_1.4fr_8rem_auto] sm:items-start">
       <legend className="px-1 text-xs font-medium text-slate-500">Ítem {n}</legend>
-      <Field label={`Producto (ítem ${n})`} error={err?.producto_id?.message}>
+      <Field
+        label={
+          <>
+            Producto<span className="sr-only"> (ítem {n})</span>
+          </>
+        }
+        error={err?.producto_id?.message}
+      >
         <Select
           {...register(`items.${indice}.producto_id`, {
             onChange: () => {
@@ -166,9 +174,18 @@ function FilaItem({
           ))}
         </Select>
       </Field>
-      <Field label={`Lote (ítem ${n})`} error={err?.lote_id?.message} ayuda={ayudaLote}>
+      <Field
+        label={
+          <>
+            Lote<span className="sr-only"> (ítem {n})</span>
+          </>
+        }
+        // Deshabilitado no admite corrección: basta la ayuda que explica qué falta
+        error={loteDeshabilitado ? undefined : err?.lote_id?.message}
+        ayuda={ayudaLote}
+      >
         <Select
-          disabled={!origenId || !productoId || lotes.isPending}
+          disabled={loteDeshabilitado}
           {...register(`items.${indice}.lote_id`, {
             onChange: (e: { target: { value: string } }) => {
               const elegido = lotes.data?.find((l) => String(l.lote_id) === e.target.value);
@@ -190,7 +207,11 @@ function FilaItem({
         </Select>
       </Field>
       <Field
-        label={`Cantidad (ítem ${n})`}
+        label={
+          <>
+            Cantidad<span className="sr-only"> (ítem {n})</span>
+          </>
+        }
         error={err?.cantidad?.message}
         ayuda={disponible !== null && !excede ? `Disponible: ${disponible}` : undefined}
       >
@@ -215,7 +236,7 @@ function FilaItem({
         </Button>
       </div>
       {excede && !err?.cantidad ? (
-        <p role="alert" className="text-xs font-medium text-amber-800 sm:col-span-4">
+        <p role="alert" className="text-xs font-medium text-aviso-800 sm:col-span-4">
           La cantidad ({cantidad}) supera el disponible del lote en el origen ({disponible}).
         </p>
       ) : null}
@@ -368,7 +389,7 @@ export function NuevoTraslado({ bodegas, onCancelar }: Props) {
         />
       ))}
       {errors.items?.root?.message || errors.items?.message ? (
-        <p className="text-xs font-medium text-red-700">
+        <p className="text-xs font-medium text-peligro-700">
           {errors.items.root?.message ?? errors.items.message}
         </p>
       ) : null}

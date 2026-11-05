@@ -1,10 +1,9 @@
 // Detalle de un traslado: línea de tiempo, ítems, discrepancias y acciones según estado
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { toast } from 'sonner';
 import { esApiError } from '../../api/client';
-import { inventarioKeys } from '../../api/endpoints/inventario';
 import {
   anularTraslado,
   aprobarTraslado,
@@ -15,15 +14,17 @@ import {
   solicitarTraslado,
   trasladosKeys,
 } from '../../api/endpoints/traslados';
+import { invalidarStock } from '../../api/invalidaciones';
 import type { RecepcionTraslado, TipoResolucion, Traslado, Usuario } from '../../api/tipos';
 import { useAuth } from '../../auth/useAuth';
 import { EstadoBadge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Cargando } from '../../components/ui/Cargando';
+import { DialogoConfirmar } from '../../components/ui/DialogoConfirmar';
 import { DialogoMotivo } from '../../components/ui/DialogoMotivo';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { EstadoVacio } from '../../components/ui/EstadoVacio';
-import { Table, type Columna } from '../../components/ui/Table';
+import { CLASE_CONTENEDOR_TABLA, CLASE_TD, CLASE_TH, CLASE_THEAD } from '../../components/ui/Table';
 import { useAccionUnica } from '../../components/ui/useAccionUnica';
 import { formatearFecha, formatearFechaHora } from '../../lib/fechas';
 import { accionesDisponibles, type AccionTraslado } from './acciones';
@@ -49,32 +50,74 @@ const EXITO: Record<AccionTraslado, string> = {
 
 const esTransicionInvalida = (e: unknown) => esApiError(e) && e.codigo === 'TRANSICION_INVALIDA';
 
-const COLUMNAS_ITEMS: Columna<Traslado['items'][number]>[] = [
-  { clave: 'producto', titulo: 'Producto', celda: (it) => it.producto.nombre },
-  { clave: 'lote', titulo: 'Lote', celda: (it) => it.lote.codigo },
-  {
-    clave: 'vence',
-    titulo: 'Vencimiento',
-    celda: (it) => formatearFecha(it.lote.fecha_vencimiento),
-  },
-  { clave: 'enviada', titulo: 'Enviada', alinear: 'der', celda: (it) => it.cantidad },
-  {
-    clave: 'recibida',
-    titulo: 'Recibida',
-    alinear: 'der',
-    celda: (it) => it.cantidad_recibida ?? '—',
-  },
-  {
-    clave: 'diferencia',
-    titulo: 'Diferencia',
-    alinear: 'der',
-    celda: (it) => {
-      if (it.cantidad_recibida === null) return '—';
-      const dif = it.cantidad_recibida - it.cantidad;
-      return dif === 0 ? '0' : <span className="font-medium text-amber-800">{dif}</span>;
-    },
-  },
-];
+/** Ítems del traslado. En móvil el lote pasa bajo el producto para no forzar scroll. */
+function TablaItems({ items }: { items: Traslado['items'] }) {
+  return (
+    <div className={CLASE_CONTENEDOR_TABLA}>
+      <table className="min-w-full text-sm">
+        <caption className="sr-only">Ítems del traslado</caption>
+        <thead className={CLASE_THEAD}>
+          <tr>
+            <th scope="col" className={`${CLASE_TH} text-left`}>
+              Producto
+            </th>
+            <th scope="col" className={`${CLASE_TH} hidden text-left sm:table-cell`}>
+              Lote
+            </th>
+            <th scope="col" className={`${CLASE_TH} hidden text-left sm:table-cell`}>
+              Vencimiento
+            </th>
+            <th scope="col" className={`${CLASE_TH} text-right`}>
+              Enviada
+            </th>
+            <th scope="col" className={`${CLASE_TH} text-right`}>
+              Recibida
+            </th>
+            <th scope="col" className={`${CLASE_TH} text-right`}>
+              Diferencia
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {items.map((it) => {
+            const dif = it.cantidad_recibida === null ? null : it.cantidad_recibida - it.cantidad;
+            return (
+              <tr key={it.id} className="hover:bg-slate-50">
+                <td className={CLASE_TD}>
+                  {it.producto.nombre}
+                  <span className="block font-mono text-xs whitespace-nowrap text-slate-600 sm:hidden">
+                    {it.lote.codigo} · vence {formatearFecha(it.lote.fecha_vencimiento)}
+                  </span>
+                </td>
+                <td
+                  className={`${CLASE_TD} hidden font-mono text-xs whitespace-nowrap sm:table-cell`}
+                >
+                  {it.lote.codigo}
+                </td>
+                <td className={`${CLASE_TD} hidden whitespace-nowrap sm:table-cell`}>
+                  {formatearFecha(it.lote.fecha_vencimiento)}
+                </td>
+                <td className={`${CLASE_TD} text-right tabular-nums`}>{it.cantidad}</td>
+                <td className={`${CLASE_TD} text-right tabular-nums`}>
+                  {it.cantidad_recibida ?? '—'}
+                </td>
+                <td className={`${CLASE_TD} text-right tabular-nums`}>
+                  {dif === null ? (
+                    '—'
+                  ) : dif === 0 ? (
+                    '0'
+                  ) : (
+                    <span className="font-medium text-aviso-800">{dif}</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 function LineaTiempo({ t, usuario }: { t: Traslado; usuario: Usuario | null }) {
   const pasos: { nombre: string; en: string | null; por: number | null }[] = [
@@ -94,67 +137,21 @@ function LineaTiempo({ t, usuario }: { t: Traslado; usuario: Usuario | null }) {
         <li key={p.nombre} className="flex items-center gap-2">
           <span
             aria-hidden="true"
-            className={`size-2.5 rounded-full ${p.en ? (p.nombre === 'Anulado' ? 'bg-red-600' : 'bg-marca-700') : 'border border-slate-400'}`}
+            className={`size-2.5 shrink-0 rounded-full ${p.en ? (p.nombre === 'Anulado' ? 'bg-peligro-600' : 'bg-marca-700') : 'border border-slate-400'}`}
           />
-          <span className={`w-24 font-medium ${p.en ? '' : 'text-slate-400'}`}>{p.nombre}</span>
+          <span className={`w-24 shrink-0 font-medium ${p.en ? '' : 'text-slate-500'}`}>
+            {p.nombre}
+          </span>
           {p.en ? (
             <span className="text-slate-700">
               {formatearFechaHora(p.en)} · {quien(p.por, usuario)}
             </span>
           ) : (
-            <span className="text-slate-400">Pendiente</span>
+            <span className="text-slate-500">Pendiente</span>
           )}
         </li>
       ))}
     </ol>
-  );
-}
-
-function DialogoConfirmar({
-  titulo,
-  descripcion,
-  etiqueta,
-  pendiente,
-  onConfirmar,
-  onCerrar,
-}: {
-  titulo: string;
-  descripcion: string;
-  etiqueta: string;
-  pendiente: boolean;
-  onConfirmar: () => void;
-  onCerrar: () => void;
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
-      onKeyDown={(e) => {
-        if (e.key === 'Escape' && !pendiente) onCerrar();
-      }}
-    >
-      <div
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="confirmar-titulo"
-        aria-describedby="confirmar-desc"
-        className="w-full max-w-md rounded-lg bg-white p-4 shadow-xl"
-      >
-        <h2 id="confirmar-titulo" className="text-base font-semibold">
-          {titulo}
-        </h2>
-        <p id="confirmar-desc" className="mt-1 text-sm text-slate-600">
-          {descripcion}
-        </p>
-        <div className="mt-4 flex justify-end gap-2">
-          <Button variante="secundario" onClick={onCerrar} disabled={pendiente}>
-            Cancelar
-          </Button>
-          <Button autoFocus pending={pendiente} onClick={onConfirmar}>
-            {etiqueta}
-          </Button>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -164,6 +161,7 @@ export default function DetalleTraslado() {
   const valido = Number.isInteger(id) && id > 0;
   const { usuario } = useAuth();
   const queryClient = useQueryClient();
+  const idBase = useId();
 
   const [errorAccion, setErrorAccion] = useState<unknown>(null);
   const [dialogo, setDialogo] = useState<'anular' | 'despachar' | 'recibir' | null>(null);
@@ -176,7 +174,8 @@ export default function DetalleTraslado() {
 
   const invalidarRelacionados = (mueveStock: boolean) => {
     void queryClient.invalidateQueries({ queryKey: [...trasladosKeys.todo, 'lista'] });
-    if (mueveStock) void queryClient.invalidateQueries({ queryKey: inventarioKeys.todo });
+    // Despachar, recibir y resolver mueven stock: inventario, kardex y alertas
+    if (mueveStock) void invalidarStock(queryClient);
   };
 
   const aplicarExito = (t: Traslado, accion: AccionTraslado) => {
@@ -229,7 +228,7 @@ export default function DetalleTraslado() {
       toast.success('Discrepancia resuelta.');
       setErrorAccion(null);
       await queryClient.invalidateQueries({ queryKey: trasladosKeys.detalle(id) });
-      invalidarRelacionados(tipo !== 'PERDIDA');
+      invalidarRelacionados(true);
     } catch (e) {
       if (!esTransicionInvalida(e)) throw e;
       setErrorAccion(e);
@@ -257,7 +256,11 @@ export default function DetalleTraslado() {
 
   const t = detalle.data;
   const { acciones, resolverDiscrepancias } = accionesDisponibles(t, usuario);
-  const ocupado = sinCuerpo.pendiente;
+  // Una acción en curso o un diálogo/formulario abierto bloquea las demás acciones
+  const ocupado = sinCuerpo.pendiente || dialogo !== null;
+  const enviandoSinCuerpo = (accion: AccionTraslado) =>
+    sinCuerpo.pendiente && enCurso === accion && dialogo === null;
+  const idMotivo = (accion: AccionTraslado) => `${idBase}-motivo-${accion}`;
 
   const alPulsar = (accion: AccionTraslado, confirmar?: boolean) => {
     setErrorAccion(null);
@@ -271,12 +274,10 @@ export default function DetalleTraslado() {
       {volver}
       <header className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-xl font-semibold">Traslado #{t.id}</h1>
-          <span className="inline-block origin-left scale-125">
-            <EstadoBadge estado={t.estado} />
-          </span>
+          <h1 className="text-lg font-semibold">Traslado #{t.id}</h1>
+          <EstadoBadge estado={t.estado} tamano="lg" />
         </div>
-        <p className="text-sm text-slate-700">
+        <p className="text-sm text-pretty text-slate-700">
           <span className="font-medium">{t.bodega_origen.nombre}</span> ({t.bodega_origen.codigo}) →{' '}
           <span className="font-medium">{t.bodega_destino.nombre}</span> ({t.bodega_destino.codigo})
         </p>
@@ -292,25 +293,29 @@ export default function DetalleTraslado() {
       ) : null}
 
       {acciones.length > 0 ? (
-        <div role="toolbar" aria-label="Acciones del traslado" className="flex flex-col gap-1">
+        <div role="group" aria-label="Acciones del traslado" className="flex flex-col gap-1">
           <div className="flex flex-wrap gap-2">
-            {acciones.map((a) => (
-              <Button
-                key={a.accion}
-                variante={a.accion === 'anular' ? 'peligro' : 'primario'}
-                disabled={!a.habilitada || (ocupado && enCurso !== a.accion)}
-                pending={ocupado && enCurso === a.accion && dialogo === null}
-                title={a.motivo}
-                onClick={() => alPulsar(a.accion, a.confirmar)}
-              >
-                {a.etiqueta}
-              </Button>
-            ))}
+            {acciones.map((a) => {
+              const conMotivo = !a.habilitada && a.motivo;
+              return (
+                <Button
+                  key={a.accion}
+                  variante={a.accion === 'anular' ? 'peligroSecundario' : 'primario'}
+                  className={a.accion === 'anular' ? 'sm:ml-auto' : ''}
+                  disabled={!a.habilitada || (ocupado && !enviandoSinCuerpo(a.accion))}
+                  pending={enviandoSinCuerpo(a.accion)}
+                  aria-describedby={conMotivo ? idMotivo(a.accion) : undefined}
+                  onClick={() => alPulsar(a.accion, a.confirmar)}
+                >
+                  {a.etiqueta}
+                </Button>
+              );
+            })}
           </div>
           {acciones
             .filter((a) => !a.habilitada && a.motivo)
             .map((a) => (
-              <p key={a.accion} className="text-xs text-slate-600">
+              <p key={a.accion} id={idMotivo(a.accion)} className="text-xs text-slate-600">
                 {a.etiqueta}: {a.motivo}
               </p>
             ))}
@@ -343,7 +348,7 @@ export default function DetalleTraslado() {
             {t.observaciones ?? 'Sin observaciones.'}
           </p>
           {t.motivo_anulacion ? (
-            <p className="text-sm text-red-800">
+            <p className="text-sm text-peligro-800">
               <span className="font-medium">Motivo de anulación:</span> {t.motivo_anulacion}
             </p>
           ) : null}
@@ -354,12 +359,7 @@ export default function DetalleTraslado() {
         <h2 id="titulo-items" className="text-base font-semibold">
           Ítems
         </h2>
-        <Table
-          titulo="Ítems del traslado"
-          columnas={COLUMNAS_ITEMS}
-          filas={t.items}
-          claveFila={(it) => it.id}
-        />
+        <TablaItems items={t.items} />
       </section>
 
       <Discrepancias
@@ -378,16 +378,15 @@ export default function DetalleTraslado() {
         onCerrar={() => setDialogo(null)}
       />
 
-      {dialogo === 'despachar' ? (
-        <DialogoConfirmar
-          titulo={`Despachar traslado #${t.id}`}
-          descripcion={`Se descontará el stock de ${t.bodega_origen.nombre} y el traslado quedará en tránsito.`}
-          etiqueta="Sí, despachar"
-          pendiente={sinCuerpo.pendiente}
-          onConfirmar={() => ejecutarSinCuerpo('despachar')}
-          onCerrar={() => setDialogo(null)}
-        />
-      ) : null}
+      <DialogoConfirmar
+        abierto={dialogo === 'despachar'}
+        titulo={`Despachar traslado #${t.id}`}
+        texto={`Se descontará el stock de ${t.bodega_origen.nombre} y el traslado quedará en tránsito.`}
+        etiquetaConfirmar="Sí, despachar"
+        pending={sinCuerpo.pendiente}
+        onConfirmar={() => ejecutarSinCuerpo('despachar')}
+        onCerrar={() => setDialogo(null)}
+      />
     </section>
   );
 }

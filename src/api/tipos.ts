@@ -408,18 +408,43 @@ export interface ResolucionDiscrepancia {
 // ---------- Alertas ----------
 
 export interface AlertaVencimiento {
-  tipo: 'POR_VENCER' | 'VENCIDO';
-  dias_restantes: number;
   existencia_id: number;
   bodega: BodegaResumen;
   producto: ProductoResumen;
   lote: LoteResumen;
+  fecha_vencimiento: string;
   cantidad: number;
+  /** VENCIDO: vence hoy o antes (dias_restantes ≤ 0). */
+  tipo: 'POR_VENCER' | 'VENCIDO';
+  /** fecha_vencimiento − meta.hoy, en días (negativo = días que lleva vencido). */
+  dias_restantes: number;
 }
 
 export interface AlertaStockMinimo {
+  stock_minimo_id: number;
   bodega: BodegaResumen;
   producto: ProductoResumen;
-  actual: number;
   minimo: number;
+  /** Stock vigente (lotes que vencen después de meta.hoy). */
+  actual: number;
+  /** minimo − actual (> 0). */
+  faltante: number;
+}
+
+/** Meta de las alertas: paginación más la fecha de negocio usada (Bogotá). */
+export interface MetaAlertas extends MetaPaginacion {
+  hoy: string;
+  /** Solo en vencimientos: umbral efectivo de días. */
+  dias_alerta_vencimiento?: number;
+}
+
+export interface AlertasPaginadas<T> {
+  data: T[];
+  links: Paginado<T>['links'];
+  meta: MetaAlertas;
+}
+
+export interface FiltrosAlertas extends ParamsPaginacion {
+  bodega_id?: number | undefined;
+  producto_id?: number | undefined;
 }

@@ -10,6 +10,7 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { EstadoVacio } from '../../components/ui/EstadoVacio';
 import { Field, Input } from '../../components/ui/Field';
 import { Paginacion } from '../../components/ui/Paginacion';
+import { CLASE_CONTENEDOR_TABLA, CLASE_TD, CLASE_TH, CLASE_THEAD } from '../../components/ui/Table';
 import { formatearFechaHora } from '../../lib/fechas';
 import {
   aplicarCambios,
@@ -39,7 +40,7 @@ function conSigno(n: number): string {
 }
 
 function Documento({ doc }: { doc: MovimientoKardex['documento'] }) {
-  if (!doc) return <span className="text-slate-400">—</span>;
+  if (!doc) return <span className="text-slate-500">—</span>;
   if (doc.tipo === 'traslado') {
     return (
       <Link to={`/traslados/${doc.id}`} className="text-marca-700 hover:underline">
@@ -50,43 +51,41 @@ function Documento({ doc }: { doc: MovimientoKardex['documento'] }) {
   return <span>Dispensación #{doc.id}</span>;
 }
 
-const TH = 'px-3 py-2 font-semibold';
-
 function TablaKardex({ filas }: { filas: MovimientoKardex[] }) {
   return (
-    <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+    <div className={CLASE_CONTENEDOR_TABLA}>
       <table className="min-w-full text-sm">
         <caption className="sr-only">Movimientos del kardex</caption>
-        <thead className="bg-slate-100 text-xs tracking-wide text-slate-600 uppercase">
+        <thead className={CLASE_THEAD}>
           <tr>
-            <th scope="col" className={`${TH} text-left`}>
+            <th scope="col" className={`${CLASE_TH} text-left`}>
               Fecha y hora
             </th>
-            <th scope="col" className={`${TH} text-left`}>
+            <th scope="col" className={`${CLASE_TH} text-left`}>
               Tipo
             </th>
-            <th scope="col" className={`${TH} text-left`}>
+            <th scope="col" className={`${CLASE_TH} text-left`}>
               Bodega
             </th>
-            <th scope="col" className={`${TH} text-left`}>
+            <th scope="col" className={`${CLASE_TH} text-left`}>
               Producto
             </th>
-            <th scope="col" className={`${TH} text-left`}>
+            <th scope="col" className={`${CLASE_TH} text-left`}>
               Lote
             </th>
-            <th scope="col" className={`${TH} text-right`}>
+            <th scope="col" className={`${CLASE_TH} text-right`}>
               Cantidad
             </th>
-            <th scope="col" className={`${TH} text-right`}>
+            <th scope="col" className={`${CLASE_TH} text-right`}>
               Saldo
             </th>
-            <th scope="col" className={`${TH} text-left`}>
+            <th scope="col" className={`${CLASE_TH} text-left`}>
               Usuario
             </th>
-            <th scope="col" className={`${TH} text-left`}>
+            <th scope="col" className={`${CLASE_TH} text-left`}>
               Documento
             </th>
-            <th scope="col" className={`${TH} text-left`}>
+            <th scope="col" className={`${CLASE_TH} text-left`}>
               Motivo
             </th>
           </tr>
@@ -96,28 +95,30 @@ function TablaKardex({ filas }: { filas: MovimientoKardex[] }) {
             const tipo = TIPOS[m.tipo];
             return (
               <tr key={m.id} className="hover:bg-slate-50">
-                <td className="px-3 py-1.5 whitespace-nowrap tabular-nums">
+                <td className={`${CLASE_TD} whitespace-nowrap tabular-nums`}>
                   {formatearFechaHora(m.created_at)}
                 </td>
-                <td className="px-3 py-1.5">
+                <td className={CLASE_TD}>
                   <Badge tono={tipo.tono}>{tipo.texto}</Badge>
                 </td>
-                <td className="px-3 py-1.5 whitespace-nowrap" title={m.bodega.nombre}>
+                <td className={`${CLASE_TD} whitespace-nowrap`} title={m.bodega.nombre}>
                   {m.bodega.codigo}
                 </td>
-                <td className="px-3 py-1.5">
+                <td className={CLASE_TD}>
                   <span className="font-medium">{m.producto.codigo}</span>
                   <span className="ml-1 text-slate-600">{m.producto.nombre}</span>
                 </td>
-                <td className="px-3 py-1.5 font-mono text-xs whitespace-nowrap">{m.lote.codigo}</td>
+                <td className={`${CLASE_TD} font-mono text-xs whitespace-nowrap`}>
+                  {m.lote.codigo}
+                </td>
                 <td
-                  className={`px-3 py-1.5 text-right font-semibold tabular-nums ${
-                    m.cantidad > 0 ? 'text-emerald-700' : m.cantidad < 0 ? 'text-red-700' : ''
+                  className={`${CLASE_TD} text-right font-semibold tabular-nums ${
+                    m.cantidad > 0 ? 'text-ok-700' : m.cantidad < 0 ? 'text-peligro-700' : ''
                   }`}
                 >
                   {conSigno(m.cantidad)}
                 </td>
-                <td className="px-3 py-1.5 text-right whitespace-nowrap tabular-nums">
+                <td className={`${CLASE_TD} text-right whitespace-nowrap tabular-nums`}>
                   <span className="text-slate-500">{m.saldo_anterior}</span>
                   <span aria-hidden="true" className="px-1 text-slate-400">
                     →
@@ -125,11 +126,11 @@ function TablaKardex({ filas }: { filas: MovimientoKardex[] }) {
                   <span className="sr-only"> a </span>
                   <span className="font-medium">{m.saldo_posterior}</span>
                 </td>
-                <td className="px-3 py-1.5 whitespace-nowrap">{m.usuario.nombre}</td>
-                <td className="px-3 py-1.5 whitespace-nowrap">
+                <td className={`${CLASE_TD} whitespace-nowrap`}>{m.usuario.nombre}</td>
+                <td className={`${CLASE_TD} whitespace-nowrap`}>
                   <Documento doc={m.documento} />
                 </td>
-                <td className="max-w-72 px-3 py-1.5 text-slate-600" title={m.motivo ?? undefined}>
+                <td className={`${CLASE_TD} max-w-72 text-slate-600`} title={m.motivo ?? undefined}>
                   <span className="line-clamp-2">{m.motivo ?? '—'}</span>
                 </td>
               </tr>

@@ -1,10 +1,12 @@
 // Lógica pura de la pantalla de dispensación (sin React)
 import { z } from 'zod';
 import type {
+  Dispensacion,
   Paciente,
   Prescripcion,
   PrescripcionItem,
   SolicitudDispensacion,
+  Usuario,
 } from '../../api/tipos';
 import { esApiError } from '../../api/client';
 import { diasHastaVencer, formatearFecha, hoyISO } from '../../lib/fechas';
@@ -16,8 +18,11 @@ import { esPrescripcionVigente } from '../../api/endpoints/pacientes';
  * Gestor de la Idempotency-Key: una clave por intento, ligada al cuerpo serializado.
  * Mismo cuerpo → misma clave (reintento seguro). Cuerpo distinto → clave nueva.
  */
-export function crearGestorClave(generar: () => string) {
-  let actual: { clave: string; cuerpo: string } | null = null;
+export function crearGestorClave(
+  generar: () => string,
+  inicial: { clave: string; cuerpo: string } | null = null,
+) {
+  let actual = inicial;
   return {
     claveParaCuerpo(cuerpo: string): string {
       if (actual?.cuerpo !== cuerpo) actual = { clave: generar(), cuerpo };
@@ -31,6 +36,72 @@ export function crearGestorClave(generar: () => string) {
 }
 
 export type GestorClave = ReturnType<typeof crearGestorClave>;
+
+// ---------- Persistencia en sessionStorage (con try/catch: puede no haber almacenamiento) ----------
+
+export const CLAVE_INTENTO = 'farma.dispensacion.intento';
+export const CLAVE_PENDIENTES = 'farma.dispensacion.pendientes';
+
+/** Envío con resultado incierto (red o 5xx): se guarda hasta resolverlo para no perder la clave. */
+export interface IntentoPendiente {
+  clave: string;
+  firmaCuerpo: string;
+  cuerpo: SolicitudDispensacion;
+}
+
+const esObjeto = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+export function leerIntento(): IntentoPendiente | null {
+  try {
+    const v: unknown = JSON.parse(sessionStorage.getItem(CLAVE_INTENTO) ?? 'null');
+    if (!esObjeto(v) || typeof v.clave !== 'string' || typeof v.firmaCuerpo !== 'string')
+      return null;
+    if (!esObjeto(v.cuerpo) || !Array.isArray(v.cuerpo.items)) return null;
+    const cuerpo = v.cuerpo as unknown as SolicitudDispensacion;
+    // Solo si el cuerpo guardado sigue siendo el firmado (misma clave ⇔ mismo cuerpo)
+    return serializarSolicitud(cuerpo) === v.firmaCuerpo
+      ? { clave: v.clave, firmaCuerpo: v.firmaCuerpo, cuerpo }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function guardarIntento(i: IntentoPendiente): void {
+  try {
+    sessionStorage.setItem(CLAVE_INTENTO, JSON.stringify(i));
+  } catch {
+    // Sin almacenamiento: la clave solo vive en memoria
+  }
+}
+
+export function borrarIntento(): void {
+  try {
+    sessionStorage.removeItem(CLAVE_INTENTO);
+  } catch {
+    // Nada que borrar
+  }
+}
+
+/** Ids de dispensaciones PENDIENTES creadas en esta sesión (accesos rápidos del panel). */
+export function leerPendientesSesion(): number[] {
+  try {
+    const v: unknown = JSON.parse(sessionStorage.getItem(CLAVE_PENDIENTES) ?? '[]');
+    return Array.isArray(v) ? v.filter((x): x is number => Number.isInteger(x) && x > 0) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function guardarPendientesSesion(ids: number[]): void {
+  try {
+    if (ids.length) sessionStorage.setItem(CLAVE_PENDIENTES, JSON.stringify(ids));
+    else sessionStorage.removeItem(CLAVE_PENDIENTES);
+  } catch {
+    // Sin almacenamiento: solo no se recuerdan
+  }
+}
 
 /** Serialización estable del cuerpo (mismo orden de claves que `cuerpo()` del endpoint). */
 export function serializarSolicitud(s: SolicitudDispensacion): string {
@@ -138,6 +209,45 @@ export function itemAfectado(e: unknown): number | null {
   return typeof id === 'number' ? id : null;
 }
 
+/** El listado aún no existe en el backend: 404/405 se degradan a "Abrir dispensación #". */
+export function listadoNoDisponible(e: unknown): boolean {
+  return (
+    esApiError(e) &&
+    (e.status === 404 ||
+      e.status === 405 ||
+      e.codigo === 'NO_ENCONTRADO' ||
+      e.codigo === 'METODO_NO_PERMITIDO')
+  );
+}
+
+/** Errores tras los que el pendiente de la prescripción pudo cambiar: hay que refrescarla. */
+export function refrescaPrescripcion(e: unknown): boolean {
+  return (
+    esApiError(e) &&
+    (e.codigo === 'CANTIDAD_EXCEDE_PRESCRITO' || e.codigo === 'PRESCRIPCION_NO_VIGENTE')
+  );
+}
+
+/** Nombre del producto de un STOCK_INSUFICIENTE, resuelto con los ítems ya cargados. */
+export function productoDelError(e: unknown, items: Dispensacion['items']): string | null {
+  if (!esApiError(e) || e.codigo !== 'STOCK_INSUFICIENTE') return null;
+  const { producto_id: prod, prescripcion_item_id: presc } = e.detalles;
+  const item =
+    items.find((i) => typeof presc === 'number' && i.prescripcion_item_id === presc) ??
+    items.find((i) => typeof prod === 'number' && i.producto_id === prod);
+  return item ? item.producto.nombre : null;
+}
+
+/** "Tú", el nombre si la API lo trae o "Usuario #id" (como en Traslados). */
+export function nombreUsuario(
+  id: number,
+  actual: Usuario | null | undefined,
+  nombre?: string | null,
+): string {
+  if (actual?.id === id) return 'Tú';
+  return nombre?.trim() ? nombre : `Usuario #${id}`;
+}
+
 // ---------- Textos ----------
 
 /** Motivo por el que no se puede usar una prescripción, o null si está vigente. */
@@ -154,11 +264,11 @@ export function textoVence(fecha: string, hoy: Date = new Date()): string {
   return `vence en ${dias} días`;
 }
 
-/** Edad en años o, si viene enmascarada (solo año), "Nac. AAAA". */
+/** Edad en años o, si viene enmascarada (solo año o cualquier otro formato), "Nac. <valor>". */
 export function textoEdad(p: Paciente, hoy: Date = new Date()): string {
   const f = p.fecha_nacimiento;
   if (!f) return 'Sin fecha de nacimiento';
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) return `Nac. ${f}`;
+  if (p.enmascarado || !/^\d{4}-\d{2}-\d{2}$/.test(f)) return `Nac. ${f}`;
   const [a, m, d] = f.split('-').map(Number) as [number, number, number];
   let edad = hoy.getFullYear() - a;
   if (hoy.getMonth() + 1 < m || (hoy.getMonth() + 1 === m && hoy.getDate() < d)) edad--;

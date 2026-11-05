@@ -2,25 +2,30 @@
 import { http, HttpResponse, type HttpHandler } from 'msw';
 import type { Existencia, ResultadoEntrada } from '../../api/tipos';
 import { diasHastaVencer } from '../../lib/fechas';
-import { BODEGAS, EXISTENCIAS, LOTES, PRODUCTOS, type Lote } from '../datos';
-import { api, autorizar, errorApi, filtroNum, paginar } from '../utilidades';
-import { registrarMovimiento, reiniciarKardex } from './kardex';
-
-// Estado inicial para poder reiniciar en tests
-const CANTIDADES_INICIALES = new Map(EXISTENCIAS.map((e) => [e.id, e.cantidad]));
-const TOTAL_EXISTENCIAS = EXISTENCIAS.length;
-const TOTAL_LOTES = LOTES.length;
+import { BODEGAS, EXISTENCIAS, LOTES, PRODUCTOS, reiniciarDatos, type Lote } from '../datos';
+import { api, autorizar, errorApi, filtroNum, paginar, registrarMovimiento } from '../utilidades';
 
 /** Tope por movimiento (S-24, S-32) y del saldo (columna integer). */
 const CANTIDAD_MAXIMA = 1_000_000;
 const SALDO_MAXIMO = 2_147_483_647;
 
-/** Restaura existencias, lotes y el kardex sembrado (tests). */
+/** Restaura existencias, lotes y el kardex sembrado (alias de `reiniciarDatos`). */
 export function reiniciarInventario(): void {
-  EXISTENCIAS.length = TOTAL_EXISTENCIAS;
-  LOTES.length = TOTAL_LOTES;
-  for (const e of EXISTENCIAS) e.cantidad = CANTIDADES_INICIALES.get(e.id) ?? e.cantidad;
-  reiniciarKardex();
+  reiniciarDatos();
+}
+
+/** Claves no documentadas → "Campo no permitido." (S-51). */
+function clavesExtra(
+  cuerpo: unknown,
+  permitidas: readonly string[],
+  prefijo = '',
+): Record<string, string[]> {
+  const campos: Record<string, string[]> = {};
+  if (!cuerpo || typeof cuerpo !== 'object' || Array.isArray(cuerpo)) return campos;
+  for (const clave of Object.keys(cuerpo)) {
+    if (!permitidas.includes(clave)) campos[`${prefijo}${clave}`] = ['Campo no permitido.'];
+  }
+  return campos;
 }
 
 const esEntero = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
@@ -34,7 +39,10 @@ interface CuerpoEntrada {
 }
 
 function validarEntrada(c: CuerpoEntrada): Record<string, string[]> {
-  const campos: Record<string, string[]> = {};
+  const campos: Record<string, string[]> = {
+    ...clavesExtra(c, ['bodega_id', 'producto_id', 'cantidad', 'lote_id', 'lote']),
+    ...clavesExtra(c.lote, ['codigo', 'fecha_vencimiento'], 'lote.'),
+  };
   if (!esEntero(c.bodega_id) || !BODEGAS.some((b) => b.id === c.bodega_id && b.activa)) {
     campos.bodega_id = ['The selected bodega id is invalid.'];
   }
@@ -73,7 +81,7 @@ function validarEntrada(c: CuerpoEntrada): Record<string, string[]> {
 
 function validarAjuste(cuerpo: unknown): Record<string, string[]> {
   const c = (cuerpo ?? {}) as Record<string, unknown>;
-  const campos: Record<string, string[]> = {};
+  const campos: Record<string, string[]> = clavesExtra(c, ['existencia_id', 'cantidad', 'motivo']);
   if (typeof c.existencia_id !== 'number' || !Number.isInteger(c.existencia_id)) {
     campos.existencia_id = ['The existencia id field is required.'];
   }

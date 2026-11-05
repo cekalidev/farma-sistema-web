@@ -11,6 +11,7 @@ import {
 import type { BusquedaPaciente, Paciente, TipoDocumento } from '../../api/tipos';
 import { puede } from '../../auth/permisos';
 import { useAuth } from '../../auth/useAuth';
+import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Cargando } from '../../components/ui/Cargando';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
@@ -18,7 +19,16 @@ import { Field, Input, Select } from '../../components/ui/Field';
 import { formatearFecha } from '../../lib/fechas';
 import { nuevoUuid } from '../../lib/uuid';
 import { FlujoDispensacion } from './FlujoDispensacion';
-import { crearGestorClave, motivoNoVigente, nombreCompleto, textoEdad } from './logica';
+import { IntentoRecuperado } from './IntentoRecuperado';
+import {
+  crearGestorClave,
+  guardarPendientesSesion,
+  leerIntento,
+  leerPendientesSesion,
+  motivoNoVigente,
+  nombreCompleto,
+  textoEdad,
+} from './logica';
 import { PanelPendientes } from './PanelPendientes';
 
 export const CLAVE_BODEGA = 'farma.dispensacion.bodega';
@@ -66,9 +76,32 @@ export default function PantallaDispensacion() {
   const [pacienteId, setPacienteId] = useState<number | null>(null);
   const [prescripcionId, setPrescripcionId] = useState<number | null>(null);
   const [finalizada, setFinalizada] = useState(false);
+  const [congelado, setCongelado] = useState(false);
   const [ronda, setRonda] = useState(0);
-  // La clave sobrevive a re-montajes del flujo: un reintento con el mismo cuerpo la reutiliza
-  const [gestorClave] = useState(() => crearGestorClave(nuevoUuid));
+  // Envío incierto guardado antes de una recarga (se lee una vez, al montar)
+  const [recuperado, setRecuperado] = useState(leerIntento);
+  // La clave sobrevive a re-montajes y recargas: un reintento con el mismo cuerpo la reutiliza
+  const [gestorClave] = useState(() =>
+    crearGestorClave(
+      nuevoUuid,
+      recuperado ? { clave: recuperado.clave, cuerpo: recuperado.firmaCuerpo } : null,
+    ),
+  );
+  const [recientes, setRecientes] = useState(leerPendientesSesion);
+  const recordarPendiente = (id: number) =>
+    setRecientes((r) => {
+      const ids = r.includes(id) ? r : [...r, id];
+      guardarPendientesSesion(ids);
+      return ids;
+    });
+  const olvidarPendiente = (id: number) =>
+    setRecientes((r) => {
+      if (!r.includes(id)) return r;
+      const ids = r.filter((x) => x !== id);
+      guardarPendientesSesion(ids);
+      return ids;
+    });
+  const bloqueada = finalizada || congelado;
   const busquedaRef = useRef<HTMLFormElement>(null);
 
   const bodegas = useQuery({
@@ -80,10 +113,15 @@ export default function PantallaDispensacion() {
     activas.find((b) => b.id === bodegaElegida)?.id ??
     (activas.length === 1 ? (activas[0]?.id ?? null) : null);
 
+  // RN-10: cada consulta de pacientes queda en la bitácora; solo las que pide el usuario
+  // (sin refetch al enfocar ni por datos "viejos").
   const pacientes = useQuery({
     queryKey: pacientesKeys.busqueda(busqueda ?? { numero_documento: '' }),
     queryFn: () => buscarPacientes(busqueda ?? { numero_documento: '' }),
     enabled: busqueda !== null,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const resultados = pacientes.data ?? [];
   const paciente: Paciente | null =
@@ -94,6 +132,9 @@ export default function PantallaDispensacion() {
     queryKey: pacientesKeys.prescripciones(paciente?.id ?? 0),
     queryFn: ({ signal }) => listarPrescripciones(paciente?.id ?? 0, signal),
     enabled: paciente !== null,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const listaPresc = prescripciones.data ?? [];
   const vigentes = listaPresc.filter((p) => motivoNoVigente(p) === null);
@@ -122,6 +163,7 @@ export default function PantallaDispensacion() {
       setPacienteId(null);
       setPrescripcionId(null);
       setFinalizada(false);
+      setCongelado(false);
       setRonda((r) => r + 1);
     });
     busquedaRef.current?.querySelector<HTMLInputElement>('input[name="numero_documento"]')?.focus();
@@ -131,8 +173,18 @@ export default function PantallaDispensacion() {
     <div className="flex flex-col gap-4">
       <h1 className="text-lg font-semibold">Dispensación</h1>
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem] xl:items-start">
-        <div className="flex flex-col gap-3">
-          <fieldset disabled={finalizada} className="contents">
+        <div className="flex min-w-0 flex-col gap-3">
+          {recuperado ? (
+            <IntentoRecuperado
+              intento={recuperado}
+              onPendienteCreada={recordarPendiente}
+              onCerrar={() => {
+                gestorClave.olvidar();
+                setRecuperado(null);
+              }}
+            />
+          ) : null}
+          <fieldset disabled={bloqueada} className="contents">
             <Paso n={1} titulo="Bodega">
               {bodegas.isError ? (
                 <ErrorBanner error={bodegas.error} onReintentar={() => void bodegas.refetch()} />
@@ -228,6 +280,7 @@ export default function PantallaDispensacion() {
                               {p.tipo_documento} {p.numero_documento}
                             </span>
                             <span className="text-slate-500">{textoEdad(p)}</span>
+                            {p.enmascarado ? <Badge tono="ambar">Datos enmascarados</Badge> : null}
                           </button>
                         </li>
                       );
@@ -250,7 +303,7 @@ export default function PantallaDispensacion() {
               ) : listaPresc.length === 0 ? (
                 <p className="text-sm text-slate-600">El paciente no tiene prescripciones.</p>
               ) : (
-                <fieldset disabled={finalizada} className="contents">
+                <fieldset disabled={bloqueada} className="contents">
                   <legend className="sr-only">Prescripción a dispensar</legend>
                   <ul className="flex flex-col gap-1" aria-label="Prescripciones">
                     {listaPresc.map((p) => {
@@ -296,6 +349,8 @@ export default function PantallaDispensacion() {
                   bodegaId={bodegaId}
                   gestorClave={gestorClave}
                   onFinalizada={() => setFinalizada(true)}
+                  onCongelar={setCongelado}
+                  onPendienteCreada={recordarPendiente}
                   onNueva={nueva}
                 />
               ) : null}
@@ -304,7 +359,12 @@ export default function PantallaDispensacion() {
         </div>
 
         {puede(usuario, 'dispensacion.autorizar') && usuario ? (
-          <PanelPendientes usuario={usuario} bodegaId={bodegaId} />
+          <PanelPendientes
+            usuario={usuario}
+            bodegaId={bodegaId}
+            recientes={recientes}
+            onOlvidar={olvidarPendiente}
+          />
         ) : null}
       </div>
     </div>

@@ -1,6 +1,7 @@
 // Lotes asignados por FEFO, agrupados por ítem (previsualización, resultado y autorización)
 import type { LoteResumen, ProductoConControl } from '../../api/tipos';
 import { Badge } from '../../components/ui/Badge';
+import { CLASE_CONTENEDOR_TABLA, CLASE_TD, CLASE_TH, CLASE_THEAD } from '../../components/ui/Table';
 import { formatearFecha } from '../../lib/fechas';
 import { textoVence } from './logica';
 
@@ -25,7 +26,7 @@ interface Props {
 
 export function TablaLotes({ items, detalles, sinLotes = 'Sin lotes asignados.' }: Props) {
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex min-w-0 flex-col gap-3">
       {items.map((item) => {
         const lotes = detalles.filter((d) => d.prescripcion_item_id === item.prescripcion_item_id);
         return (
@@ -40,18 +41,18 @@ export function TablaLotes({ items, detalles, sinLotes = 'Sin lotes asignados.' 
             {lotes.length === 0 ? (
               <p className="text-sm text-slate-500">{sinLotes}</p>
             ) : (
-              <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+              <div className={CLASE_CONTENEDOR_TABLA}>
                 <table className="min-w-full text-sm">
                   <caption className="sr-only">Lotes de {item.producto.nombre}</caption>
-                  <thead className="bg-slate-100 text-xs tracking-wide text-slate-600 uppercase">
+                  <thead className={CLASE_THEAD}>
                     <tr>
-                      <th scope="col" className="px-3 py-1.5 text-left font-semibold">
+                      <th scope="col" className={`${CLASE_TH} text-left`}>
                         Lote
                       </th>
-                      <th scope="col" className="px-3 py-1.5 text-left font-semibold">
+                      <th scope="col" className={`${CLASE_TH} text-left`}>
                         Vencimiento
                       </th>
-                      <th scope="col" className="px-3 py-1.5 text-right font-semibold">
+                      <th scope="col" className={`${CLASE_TH} text-right`}>
                         Cantidad
                       </th>
                     </tr>
@@ -59,14 +60,16 @@ export function TablaLotes({ items, detalles, sinLotes = 'Sin lotes asignados.' 
                   <tbody className="divide-y divide-slate-100">
                     {lotes.map((d) => (
                       <tr key={d.lote.id}>
-                        <td className="px-3 py-1 font-mono">{d.lote.codigo}</td>
-                        <td className="px-3 py-1">
+                        <td className={`${CLASE_TD} font-mono whitespace-nowrap`}>
+                          {d.lote.codigo}
+                        </td>
+                        <td className={CLASE_TD}>
                           {formatearFecha(d.lote.fecha_vencimiento)}{' '}
                           <span className="text-slate-500">
                             ({textoVence(d.lote.fecha_vencimiento)})
                           </span>
                         </td>
-                        <td className="px-3 py-1 text-right tabular-nums">{d.cantidad}</td>
+                        <td className={`${CLASE_TD} text-right tabular-nums`}>{d.cantidad}</td>
                       </tr>
                     ))}
                   </tbody>
