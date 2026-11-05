@@ -30,7 +30,8 @@ describe('useAccionUnica + Button', () => {
       boton.click();
     });
     expect(accion).toHaveBeenCalledTimes(1);
-    expect(boton).toBeDisabled();
+    // pending: aria-disabled (sigue enfocable), no disabled
+    expect(boton).toHaveAttribute('aria-disabled', 'true');
     expect(boton).toHaveAttribute('aria-busy', 'true');
     await act(async () => resolver());
     expect(boton).toBeEnabled();

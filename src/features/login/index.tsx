@@ -4,8 +4,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Navigate, useLocation, useNavigate, type Location } from 'react-router';
 import { z } from 'zod';
-import { esApiError } from '../../api/client';
-import { aplicarErroresAlFormulario } from '../../api/errores';
+import { manejarErrorDeFormulario } from '../../api/errores';
 import { rutaInicio } from '../../auth/permisos';
 import { useAuth } from '../../auth/useAuth';
 import { Button } from '../../components/ui/Button';
@@ -66,9 +65,8 @@ export default function PantallaLogin() {
       const u = await iniciarSesion(datos.email, datos.password);
       void navigate(destinoTrasLogin(location.state, rutaInicio(u)), { replace: true });
     } catch (e) {
-      const conCampos =
-        esApiError(e) && e.codigo === 'VALIDACION' && aplicarErroresAlFormulario(e, setErrorCampo);
-      if (!conCampos) setError(e);
+      const pendiente = manejarErrorDeFormulario(e, setErrorCampo, ['email', 'password']);
+      if (pendiente) setError(pendiente);
     }
   });
 

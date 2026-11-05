@@ -1,10 +1,11 @@
 import { setupWorker } from 'msw/browser';
-import { handlersPorModo, type ModoMocks } from './handlers';
+import { handlers } from './handlers';
 
-export function iniciarMocks(modo: ModoMocks) {
-  const worker = setupWorker(...handlersPorModo(modo));
+/** Demo sin backend (VITE_API_MOCKS=todo): MSW responde toda la API. */
+export function iniciarMocks() {
+  const worker = setupWorker(...handlers);
   return worker.start({
-    // En modo parcial lo no simulado pasa al backend real sin avisos
+    // Recursos estáticos (JS, CSS, fuentes) siguen su curso sin avisos
     onUnhandledFrame: 'bypass',
     quiet: true,
   });

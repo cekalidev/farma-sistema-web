@@ -2,7 +2,8 @@
 
 interface ImportMetaEnv {
   readonly VITE_API_URL?: string;
-  readonly VITE_API_MOCKS?: 'parcial' | 'todo' | 'no';
+  /** `todo` = demo sin backend (MSW); cualquier otro valor = backend real. */
+  readonly VITE_API_MOCKS?: string;
 }
 
 interface ImportMeta {

@@ -1,23 +1,16 @@
+// Primero: configura Zod sin eval (CSP) antes de que otro módulo cree esquemas
+import './lib/zodSinEval';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './app/App';
-import type { ModoMocks } from './mocks/handlers';
 import './index.css';
 
-function modoMocks(): ModoMocks {
-  const valor = (import.meta.env.VITE_API_MOCKS ?? '').trim();
-  if (valor === 'todo' || valor === 'parcial' || valor === 'no') return valor;
-  return import.meta.env.DEV ? 'parcial' : 'no';
-}
-
-// MSW antes de renderizar; en producción solo si VITE_API_MOCKS=todo
+// MSW antes de renderizar, solo con VITE_API_MOCKS=todo (demo sin backend).
+// Comparación estática: si no es 'todo', el build elimina MSW del bundle.
 async function prepararMocks(): Promise<void> {
-  // Comparación estática: el build de producción elimina MSW si no es 'todo'
-  if (import.meta.env.PROD && import.meta.env.VITE_API_MOCKS !== 'todo') return;
-  const modo = modoMocks();
-  if (modo === 'no') return;
+  if (import.meta.env.VITE_API_MOCKS !== 'todo') return;
   const { iniciarMocks } = await import('./mocks/browser');
-  await iniciarMocks(modo);
+  await iniciarMocks();
 }
 
 const raiz = document.getElementById('root');

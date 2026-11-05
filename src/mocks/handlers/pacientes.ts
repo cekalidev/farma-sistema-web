@@ -1,5 +1,4 @@
-// Pacientes y prescripciones. El backend los está incorporando con esta misma forma;
-// cuando estén publicados, mover a `handlersReales`.
+// Pacientes y prescripciones (existen en el backend: buscar, detalle y prescripciones)
 import { http, HttpResponse, type HttpHandler } from 'msw';
 import type { Paciente, Prescripcion, Usuario } from '../../api/tipos';
 import { DISPENSACIONES, PACIENTES, PRESCRIPCIONES } from '../datos';
@@ -59,9 +58,7 @@ export function conPendientes(p: Prescripcion): Prescripcion {
   };
 }
 
-export const handlersReales: HttpHandler[] = [];
-
-export const handlersFaltantes: HttpHandler[] = [
+export const handlersReales: HttpHandler[] = [
   http.post(api('/pacientes/buscar'), async ({ request }) => {
     const u = autorizar(request, 'paciente.consultar');
     if (u instanceof Response) return u;
@@ -106,3 +103,5 @@ export const handlersFaltantes: HttpHandler[] = [
     return HttpResponse.json({ data });
   }),
 ];
+
+export const handlersFaltantes: HttpHandler[] = [];

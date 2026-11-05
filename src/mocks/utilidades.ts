@@ -1,7 +1,14 @@
 // Utilidades para los handlers MSW
 import { HttpResponse } from 'msw';
-import type { Habilidad, Paginado, Usuario } from '../api/tipos';
-import { USUARIOS } from './datos';
+import type {
+  Existencia,
+  Habilidad,
+  MovimientoKardex,
+  Paginado,
+  TipoMovimiento,
+  Usuario,
+} from '../api/tipos';
+import { MOVIMIENTOS, USUARIOS } from './datos';
 
 /** Patrón de URL que coincide con cualquier origen: `api('/bodegas')` → `* /api/v1/bodegas`. */
 export function api(ruta: string): string {
@@ -81,4 +88,48 @@ export function paginar<T>(items: T[], request: Request, porPaginaFija?: number)
 export function filtroNum(request: Request, clave: string): number | undefined {
   const v = new URL(request.url).searchParams.get(clave);
   return v === null || v === '' ? undefined : Number(v);
+}
+
+export interface NuevoMovimiento {
+  tipo: TipoMovimiento;
+  existencia: Existencia;
+  /** Con signo: negativo en salidas. */
+  cantidad: number;
+  /** Saldo antes del movimiento (por defecto, `existencia.cantidad - cantidad`). */
+  saldoAnterior?: number;
+  motivo?: string | null;
+  usuarioId: number;
+  documento?: MovimientoKardex['documento'];
+  createdAt?: string;
+}
+
+/**
+ * Añade un movimiento al kardex simulado compartido (`MOVIMIENTOS` de datos.ts).
+ * Llamar DESPUÉS de actualizar `existencia.cantidad` si no se pasa `saldoAnterior`.
+ */
+export function registrarMovimiento(m: NuevoMovimiento): MovimientoKardex {
+  const e = m.existencia;
+  const u = USUARIOS.find((x) => x.id === m.usuarioId);
+  const saldoAnterior = m.saldoAnterior ?? e.cantidad - m.cantidad;
+  const mov: MovimientoKardex = {
+    id: MOVIMIENTOS.reduce((max, x) => Math.max(max, x.id), 0) + 1,
+    tipo: m.tipo,
+    existencia_id: e.id,
+    bodega_id: e.bodega_id,
+    producto_id: e.producto_id,
+    lote_id: e.lote_id,
+    bodega: e.bodega,
+    producto: e.producto,
+    lote: e.lote,
+    cantidad: m.cantidad,
+    saldo_anterior: saldoAnterior,
+    saldo_posterior: saldoAnterior + m.cantidad,
+    motivo: m.motivo ?? null,
+    usuario_id: m.usuarioId,
+    usuario: { id: m.usuarioId, nombre: u?.nombre ?? `Usuario ${m.usuarioId}` },
+    documento: m.documento ?? null,
+    created_at: m.createdAt ?? new Date().toISOString(),
+  };
+  MOVIMIENTOS.push(mov);
+  return mov;
 }

@@ -5,11 +5,10 @@ import { useEffect, useId, useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import { esApiError } from '../../api/client';
 import { alertasKeys } from '../../api/endpoints/alertas';
 import { inventarioKeys, registrarEntrada } from '../../api/endpoints/inventario';
 import { kardexKeys } from '../../api/endpoints/kardex';
-import { aplicarErroresAlFormulario } from '../../api/errores';
+import { manejarErrorDeFormulario } from '../../api/errores';
 import type { EntradaInventario } from '../../api/tipos';
 import { Button } from '../../components/ui/Button';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
@@ -120,14 +119,15 @@ export function DialogoEntrada({ bodegaId, productoId, onCerrar }: Props) {
       ]);
       onCerrar();
     } catch (e) {
-      const conCampos =
-        esApiError(e) &&
-        e.codigo === 'VALIDACION' &&
-        aplicarErroresAlFormulario(e, setError, {
-          'lote.codigo': 'codigo',
-          'lote.fecha_vencimiento': 'fecha_vencimiento',
-        });
-      if (!conCampos) setErrorServidor(e);
+      const pendiente = manejarErrorDeFormulario(e, setError, {
+        bodega_id: 'bodega_id',
+        producto_id: 'producto_id',
+        cantidad: 'cantidad',
+        lote_id: 'lote_id',
+        'lote.codigo': 'codigo',
+        'lote.fecha_vencimiento': 'fecha_vencimiento',
+      });
+      if (pendiente) setErrorServidor(pendiente);
     }
   });
 

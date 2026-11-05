@@ -13,7 +13,7 @@ const ENLACES: { seccion: Seccion; ruta: string; texto: string }[] = [
 ];
 
 const claseEnlace = ({ isActive }: { isActive: boolean }) =>
-  `rounded px-2.5 py-1.5 text-sm font-medium ${
+  `shrink-0 rounded px-2.5 py-1.5 text-sm font-medium ${
     isActive ? 'bg-marca-700 text-white' : 'text-slate-700 hover:bg-slate-200'
   }`;
 
@@ -26,24 +26,35 @@ export function AppShell() {
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2">
-          <span className="font-semibold text-marca-800">FARTMAR IPS · Farmacia</span>
-          <nav aria-label="Principal" className="flex flex-1 flex-wrap gap-1">
-            {enlaces.map((e) => (
-              <NavLink key={e.ruta} to={e.ruta} className={claseEnlace}>
-                {e.texto}
-              </NavLink>
-            ))}
+        {/* Móvil: fila 1 = marca + usuario + Salir; fila 2 = nav con scroll horizontal */}
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2">
+          <span className="shrink-0 font-semibold text-marca-800">
+            FARTMAR<span className="hidden sm:inline"> IPS · Farmacia</span>
+          </span>
+          <nav
+            aria-label="Principal"
+            className="order-last -mx-1 w-[calc(100%+0.5rem)] overflow-x-auto px-1 py-0.5 [scrollbar-width:thin] sm:order-none sm:mx-0 sm:w-auto sm:flex-1 sm:px-0"
+          >
+            <div className="flex gap-1">
+              {enlaces.map((e) => (
+                <NavLink key={e.ruta} to={e.ruta} className={claseEnlace}>
+                  {e.texto}
+                </NavLink>
+              ))}
+            </div>
           </nav>
           {usuario ? (
-            <div className="flex items-center gap-3 text-sm">
-              <span className="text-right leading-tight">
-                <span className="block font-medium">{usuario.nombre}</span>
-                <span className="block text-xs text-slate-500">{NOMBRE_ROL[usuario.rol]}</span>
+            <div className="ml-auto flex min-w-0 items-center gap-3 text-sm">
+              <span className="min-w-0 text-right leading-tight">
+                <span className="block truncate font-medium">{usuario.nombre}</span>
+                <span className="hidden text-xs text-slate-500 sm:block">
+                  {NOMBRE_ROL[usuario.rol]}
+                </span>
               </span>
               <Button
                 variante="secundario"
                 tamano="sm"
+                className="shrink-0"
                 pending={salir.pendiente}
                 onClick={() => void salir.ejecutar()}
               >

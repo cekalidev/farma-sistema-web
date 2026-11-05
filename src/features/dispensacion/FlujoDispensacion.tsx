@@ -11,7 +11,7 @@ import {
   previsualizarDispensacion,
 } from '../../api/endpoints/dispensaciones';
 import { pacientesKeys } from '../../api/endpoints/pacientes';
-import { aplicarErroresAlFormulario } from '../../api/errores';
+import { manejarErrorDeFormulario } from '../../api/errores';
 import type {
   Dispensacion,
   Paciente,
@@ -122,11 +122,8 @@ export function FlujoDispensacion({
       confirmarRef.current?.querySelector('button')?.focus();
     } catch (e) {
       setPrevia(null);
-      const conCampos =
-        esApiError(e) &&
-        e.codigo === 'VALIDACION' &&
-        aplicarErroresAlFormulario(e, setError, mapaCamposServidor(solicitud, v));
-      if (!conCampos) setErrorPrevia({ error: e, firma });
+      const pendiente = manejarErrorDeFormulario(e, setError, mapaCamposServidor(solicitud, v));
+      if (pendiente) setErrorPrevia({ error: pendiente, firma });
     }
   });
 
@@ -144,15 +141,12 @@ export function FlujoDispensacion({
       void queryClient.invalidateQueries({ queryKey: pacientesKeys.prescripciones(paciente.id) });
       void queryClient.invalidateQueries({ queryKey: dispensacionesKeys.todo });
     } catch (e) {
-      const conCampos =
-        esApiError(e) &&
-        e.codigo === 'VALIDACION' &&
-        aplicarErroresAlFormulario(
-          e,
-          setError,
-          mapaCamposServidor(solicitud, valoresIniciales(prescripcion)),
-        );
-      if (!conCampos) setErrorConfirmar({ error: e, firma });
+      const pendiente = manejarErrorDeFormulario(
+        e,
+        setError,
+        mapaCamposServidor(solicitud, valoresIniciales(prescripcion)),
+      );
+      if (pendiente) setErrorConfirmar({ error: pendiente, firma });
     }
   });
 

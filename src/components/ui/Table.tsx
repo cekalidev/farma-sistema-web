@@ -15,26 +15,36 @@ interface TableProps<T> {
   /** Texto accesible de la tabla. */
   titulo?: string;
   vacio?: ReactNode;
+  /** Clases extra por fila (p. ej. resaltar vencidos). Sustituye el hover por defecto. */
+  claseFila?: (fila: T) => string;
 }
 
-const ALINEAR = {
+export const ALINEAR = {
   izq: 'text-left',
   der: 'text-right tabular-nums',
   centro: 'text-center',
 } as const;
 
-export function Table<T>({ columnas, filas, claveFila, titulo, vacio }: TableProps<T>) {
+/** Clases comunes para tablas hechas a mano: úsalas para que todas se vean iguales. */
+export const CLASE_THEAD = 'bg-slate-100 text-xs tracking-wide text-slate-600 uppercase';
+export const CLASE_TH = 'px-3 py-2 font-semibold whitespace-nowrap';
+export const CLASE_TD = 'px-3 py-1.5';
+/** `relative` evita que el `sr-only` del caption provoque scroll horizontal en móvil. */
+export const CLASE_CONTENEDOR_TABLA =
+  'relative overflow-x-auto rounded-md border border-slate-200 bg-white';
+
+export function Table<T>({ columnas, filas, claveFila, titulo, vacio, claseFila }: TableProps<T>) {
   return (
-    <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+    <div className={CLASE_CONTENEDOR_TABLA}>
       <table className="min-w-full text-sm">
         {titulo ? <caption className="sr-only">{titulo}</caption> : null}
-        <thead className="bg-slate-100 text-xs tracking-wide text-slate-600 uppercase">
+        <thead className={CLASE_THEAD}>
           <tr>
             {columnas.map((c) => (
               <th
                 key={c.clave}
                 scope="col"
-                className={`px-3 py-2 font-semibold ${ALINEAR[c.alinear ?? 'izq']}`}
+                className={`${CLASE_TH} ${ALINEAR[c.alinear ?? 'izq']}`}
               >
                 {c.titulo}
               </th>
@@ -50,9 +60,9 @@ export function Table<T>({ columnas, filas, claveFila, titulo, vacio }: TablePro
             </tr>
           ) : (
             filas.map((f) => (
-              <tr key={claveFila(f)} className="hover:bg-slate-50">
+              <tr key={claveFila(f)} className={claseFila?.(f) ?? 'hover:bg-slate-50'}>
                 {columnas.map((c) => (
-                  <td key={c.clave} className={`px-3 py-1.5 ${ALINEAR[c.alinear ?? 'izq']}`}>
+                  <td key={c.clave} className={`${CLASE_TD} ${ALINEAR[c.alinear ?? 'izq']}`}>
                     {c.celda(f)}
                   </td>
                 ))}

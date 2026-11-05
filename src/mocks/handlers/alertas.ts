@@ -1,4 +1,5 @@
-// Alertas de vencimiento y stock mínimo (AÚN NO EXISTEN en el backend)
+// Alertas de vencimiento y stock mínimo. NO existen en el backend: solo en modo `todo`;
+// con backend real la UI debe tolerar 404/405.
 import { http, HttpResponse, type HttpHandler } from 'msw';
 import type { AlertaStockMinimo, AlertaVencimiento } from '../../api/tipos';
 import { diasHastaVencer } from '../../lib/fechas';

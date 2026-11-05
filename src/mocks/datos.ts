@@ -5,6 +5,7 @@ import type {
   Existencia,
   Habilidad,
   LoteResumen,
+  MovimientoKardex,
   Paciente,
   Prescripcion,
   Producto,
@@ -400,3 +401,71 @@ export const TRASLADOS: Traslado[] = [
     updated_at: hace(240),
   },
 ];
+
+// ---------- Kardex compartido ----------
+
+/**
+ * Movimientos del kardex simulado, compartidos por los handlers que mueven stock
+ * (dispensaciones, traslados, inventario). Añadir con `registrarMovimiento` (utilidades.ts).
+ */
+export const MOVIMIENTOS: MovimientoKardex[] = [];
+
+/** Semilla: una ENTRADA por existencia, coherente con su saldo actual. */
+function sembrarMovimientos(): MovimientoKardex[] {
+  const regente = USUARIOS.find((u) => u.id === 2);
+  return EXISTENCIAS.map((e, i) => {
+    const fecha = new Date();
+    fecha.setDate(fecha.getDate() - (3 + (e.id % 10)));
+    fecha.setHours(8, e.id % 60, 0, 0);
+    return {
+      id: i + 1,
+      tipo: 'ENTRADA',
+      existencia_id: e.id,
+      bodega_id: e.bodega_id,
+      producto_id: e.producto_id,
+      lote_id: e.lote_id,
+      bodega: e.bodega,
+      producto: e.producto,
+      lote: e.lote,
+      cantidad: e.cantidad,
+      saldo_anterior: 0,
+      saldo_posterior: e.cantidad,
+      motivo: null,
+      usuario_id: 2,
+      usuario: { id: 2, nombre: regente?.nombre ?? 'Usuario 2' },
+      documento: null,
+      created_at: fecha.toISOString(),
+    };
+  });
+}
+MOVIMIENTOS.push(...sembrarMovimientos());
+
+// ---------- Reinicio (tests) ----------
+
+// Semilla inmutable tomada al cargar el módulo, antes de cualquier mutación
+const SEMILLA = Object.freeze({
+  lotes: structuredClone(LOTES),
+  existencias: structuredClone(EXISTENCIAS),
+  prescripciones: structuredClone(PRESCRIPCIONES),
+  dispensaciones: structuredClone(DISPENSACIONES),
+  traslados: structuredClone(TRASLADOS),
+  movimientos: structuredClone(MOVIMIENTOS),
+});
+
+function restaurar<T>(destino: T[], semilla: readonly T[]): void {
+  destino.splice(0, destino.length, ...structuredClone(semilla));
+}
+
+/**
+ * Reconstruye IN-PLACE todos los arrays mutables (lotes, existencias, prescripciones,
+ * dispensaciones, traslados y movimientos) desde la semilla. Las referencias exportadas
+ * siguen siendo las mismas, así que los handlers no tienen que reimportar nada.
+ */
+export function reiniciarDatos(): void {
+  restaurar(LOTES, SEMILLA.lotes);
+  restaurar(EXISTENCIAS, SEMILLA.existencias);
+  restaurar(PRESCRIPCIONES, SEMILLA.prescripciones);
+  restaurar(DISPENSACIONES, SEMILLA.dispensaciones);
+  restaurar(TRASLADOS, SEMILLA.traslados);
+  restaurar(MOVIMIENTOS, SEMILLA.movimientos);
+}

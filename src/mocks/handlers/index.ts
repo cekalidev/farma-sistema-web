@@ -1,4 +1,5 @@
-// Combina los handlers por modo: parcial = solo faltantes; todo = reales + faltantes
+// Handlers MSW. Dos modos: `todo` = demo sin backend (MSW simula toda la API);
+// `no` = backend real, sin MSW. No hay mezcla: con backend real nada se simula.
 import type { HttpHandler } from 'msw';
 import * as alertas from './alertas';
 import * as auth from './auth';
@@ -9,7 +10,7 @@ import * as kardex from './kardex';
 import * as pacientes from './pacientes';
 import * as traslados from './traslados';
 
-export type ModoMocks = 'parcial' | 'todo' | 'no';
+export type ModoMocks = 'todo' | 'no';
 
 const MODULOS = [
   auth,
@@ -22,15 +23,14 @@ const MODULOS = [
   alertas,
 ];
 
+/** Endpoints que el backend tiene (simulados con su misma forma). */
 export const handlersReales: HttpHandler[] = MODULOS.flatMap((m) => m.handlersReales);
+/** Endpoints que el backend NO tiene (`GET /dispensaciones?estado=`, `/alertas/*`): solo demo. */
 export const handlersFaltantes: HttpHandler[] = MODULOS.flatMap((m) => m.handlersFaltantes);
 
-/** Los faltantes van primero: rutas específicas antes que las genéricas. */
-export function handlersPorModo(modo: ModoMocks): HttpHandler[] {
-  if (modo === 'todo') return [...handlersFaltantes, ...handlersReales];
-  if (modo === 'parcial') return handlersFaltantes;
-  return [];
-}
+/** Lista completa. Los faltantes van primero: rutas específicas antes que las genéricas. */
+export const handlers: HttpHandler[] = [...handlersFaltantes, ...handlersReales];
 
-/** Todos (tests). */
-export const handlers: HttpHandler[] = handlersPorModo('todo');
+export function handlersPorModo(modo: ModoMocks): HttpHandler[] {
+  return modo === 'todo' ? handlers : [];
+}

@@ -88,6 +88,7 @@ export interface RespuestaConMeta<T> {
 }
 
 const MAX_REINTENTOS_CONCURRENCIA = 2;
+const RUTAS_SIN_AVISO = new Set(['/auth/login', '/auth/logout']);
 
 function construirUrl(ruta: string, query?: OpcionesPeticion['query']): string {
   let url = `${API_BASE}${ruta}`;
@@ -202,7 +203,8 @@ export async function peticionConMeta<T>(
       continue;
     }
 
-    if (error.status === 401 && error.codigo === 'NO_AUTENTICADO' && ruta !== '/auth/login') {
+    // Login y logout no avisan de sesión expirada (el logout voluntario ya cierra la sesión)
+    if (error.status === 401 && error.codigo === 'NO_AUTENTICADO' && !RUTAS_SIN_AVISO.has(ruta)) {
       for (const oyente of oyentesSesionExpirada) oyente();
     }
     throw error;

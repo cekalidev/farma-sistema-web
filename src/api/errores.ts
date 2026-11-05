@@ -1,6 +1,6 @@
 // Traducción de errores de la API a mensajes claros en español
 import type { FieldValues, Path, UseFormSetError } from 'react-hook-form';
-import { esApiError, type Detalles } from './client';
+import { ApiError, esApiError, type Detalles } from './client';
 
 const num = (d: Detalles, k: string): number | undefined =>
   typeof d[k] === 'number' ? d[k] : undefined;
@@ -31,10 +31,23 @@ const ACCIONES: Record<string, string> = {
   recibir: 'recibir',
   anular: 'anular',
   editar: 'editar',
+  editar_items: 'editar los ítems',
   autorizar: 'autorizar',
   rechazar: 'rechazar',
   resolver: 'resolver la discrepancia',
+  resolver_discrepancia: 'resolver la discrepancia',
 };
+
+/** Solo se muestra un código con forma de constante (nunca texto libre del backend). */
+const CODIGO_SEGURO = /^[A-Z][A-Z0-9_]{0,59}$/;
+
+/**
+ * true si no se sabe si la operación se aplicó en el servidor: sin respuesta (RED)
+ * o 5xx (500, 502/504 del proxy). Antes de reintentar hay que consultar el estado.
+ */
+export function esResultadoIncierto(e: unknown): boolean {
+  return esApiError(e) && (e.codigo === 'RED' || e.status >= 500);
+}
 
 function fechaLegible(f: string | undefined): string {
   if (!f) return '';
@@ -119,7 +132,7 @@ export function mensajeDeError(e: unknown): string {
       return 'Quien registró la dispensación no puede autorizarla ni rechazarla. Debe hacerlo otro regente.';
     case 'SEGREGACION_FUNCIONES':
       return txt(d, 'accion') === 'resolver_discrepancia'
-        ? 'Quien solicitó el traslado no puede resolver sus discrepancias. Debe hacerlo otro usuario.'
+        ? 'Debe resolverla otro regente distinto de quien solicitó el traslado.'
         : 'Quien solicitó el traslado no puede aprobarlo. Debe hacerlo otro regente.';
     case 'CONFLICTO_CONCURRENCIA':
       return 'La operación coincidió con otra simultánea y no se aplicó. Intenta de nuevo.';
@@ -145,14 +158,18 @@ export function mensajeDeError(e: unknown): string {
       const campos = erroresDeCampos(e);
       const primeros = Object.entries(campos).slice(0, 3);
       if (primeros.length === 0) return 'Los datos enviados no son válidos.';
-      return `Revisa los datos: ${primeros.map(([c, m]) => `${etiquetaCampo(c)}: ${m}`).join('; ')}.`;
+      const lista = primeros.map(([c, m]) => `${etiquetaCampo(c)}: ${m.replace(/\.$/, '')}`);
+      return `Revisa los datos: ${lista.join('; ')}.`;
     }
     case 'RED':
       return 'No se pudo conectar con el servidor. Revisa tu conexión e intenta de nuevo.';
     case 'ERROR_INTERNO':
       return 'Error interno del servidor. Intenta de nuevo en unos minutos.';
     default:
-      return e.mensaje || 'La solicitud no pudo procesarse.';
+      // Nunca el `mensaje` crudo: puede venir en inglés o con datos personales (RN-10)
+      return CODIGO_SEGURO.test(e.codigo)
+        ? `La solicitud no pudo procesarse (código ${e.codigo}). Intenta de nuevo o avisa a soporte.`
+        : 'La solicitud no pudo procesarse. Intenta de nuevo o avisa a soporte.';
   }
 }
 
@@ -214,6 +231,10 @@ const PATRONES: [RegExp, (m: RegExpMatchArray) => string][] = [
   [/has a duplicate value|duplicate/i, () => 'Está repetido.'],
   [/must be after/i, () => 'La fecha debe ser posterior.'],
   [/must not contain|line break/i, () => 'No puede contener saltos de línea.'],
+  // Mensajes ya en español: solo patrones conocidos, nunca el texto tal cual
+  [/obligatori/i, () => 'Es obligatorio.'],
+  [/n[uú]mero entero/i, () => 'Debe ser un número entero.'],
+  [/ya (est[aá] registrad|existe)/i, () => 'Ya está registrado.'],
 ];
 
 function traducir(mensaje: string): string {
@@ -221,8 +242,8 @@ function traducir(mensaje: string): string {
     const m = mensaje.match(re);
     if (m) return fn(m);
   }
-  // Si ya viene en español (o es desconocido) se usa un genérico seguro
-  return /[áéíóúñ¿¡]/i.test(mensaje) ? mensaje : 'El valor no es válido.';
+  // Desconocido (en cualquier idioma): genérico seguro, sin eco del texto del backend
+  return 'El valor no es válido.';
 }
 
 /** Errores por campo desde `detalles.campos` (claves con punto) ya traducidos. */
@@ -236,21 +257,80 @@ export function erroresDeCampos(e: unknown): Record<string, string> {
   return salida;
 }
 
+/** Clave del backend (`items.0.cantidad`) → mensaje ya traducido. */
+export type ErroresNoAplicados = Record<string, string>;
+
 /**
- * Vuelca los errores de campo en react-hook-form. Devuelve true si aplicó alguno.
- * `mapa` permite renombrar claves del backend a nombres del formulario.
+ * Campos que pinta el formulario:
+ * - lista de nombres (la clave del backend es igual al nombre del campo);
+ * - mapeo `clave del backend → campo del formulario` (solo se aplican las claves del mapeo);
+ * - función que devuelve el campo o null si no se pinta.
+ */
+export type CamposVisibles<T extends FieldValues> =
+  | readonly Path<T>[]
+  | Readonly<Record<string, Path<T>>>
+  | ((claveBackend: string) => Path<T> | null | undefined);
+
+function resolverCampo<T extends FieldValues>(
+  campos: CamposVisibles<T>,
+  clave: string,
+): Path<T> | null {
+  if (typeof campos === 'function') return campos(clave) ?? null;
+  if (Array.isArray(campos)) {
+    return (campos as readonly string[]).includes(clave) ? (clave as Path<T>) : null;
+  }
+  const mapa = campos as Readonly<Record<string, Path<T>>>;
+  return Object.hasOwn(mapa, clave) ? (mapa[clave] ?? null) : null;
+}
+
+/**
+ * Aplica los errores de campo (422 VALIDACION) SOLO a los campos que existen en el
+ * formulario y DEVUELVE los que no pudo aplicar, para mostrarlos en un ErrorBanner
+ * (ver `resumenErroresNoAplicados` o `manejarErrorDeFormulario`).
  */
 export function aplicarErroresAlFormulario<T extends FieldValues>(
   e: unknown,
   setError: UseFormSetError<T>,
-  mapa: Record<string, Path<T>> = {},
-): boolean {
-  const campos = erroresDeCampos(e);
-  let aplicado = false;
-  for (const [clave, mensaje] of Object.entries(campos)) {
-    const nombre = mapa[clave] ?? (clave as Path<T>);
-    setError(nombre, { type: 'server', message: mensaje });
-    aplicado = true;
+  camposVisibles: CamposVisibles<T>,
+): ErroresNoAplicados {
+  const noAplicados: ErroresNoAplicados = {};
+  for (const [clave, mensaje] of Object.entries(erroresDeCampos(e))) {
+    const nombre = resolverCampo(camposVisibles, clave);
+    if (nombre) setError(nombre, { type: 'server', message: mensaje });
+    else noAplicados[clave] = mensaje;
   }
-  return aplicado;
+  return noAplicados;
+}
+
+/** `{bodega_id: 'Es obligatorio.'}` → `bodega: Es obligatorio.` (null si no hay nada). */
+export function resumenErroresNoAplicados(noAplicados: ErroresNoAplicados): string | null {
+  const partes = Object.entries(noAplicados).map(([c, m]) => `${etiquetaCampo(c)}: ${m}`);
+  return partes.length ? partes.join('; ') : null;
+}
+
+/**
+ * Manejo completo del error al enviar un formulario:
+ * - VALIDACION: pinta en los campos lo que se pueda; si queda algo sin pintar, devuelve un
+ *   ApiError con SOLO esos campos (su `mensajeDeError` los lista);
+ * - todo pintado: devuelve null (no hace falta banner);
+ * - cualquier otro error: lo devuelve tal cual.
+ * Uso: `const pendiente = manejarErrorDeFormulario(e, setError, campos); if (pendiente) setErrorBanner(pendiente);`
+ */
+export function manejarErrorDeFormulario<T extends FieldValues>(
+  e: unknown,
+  setError: UseFormSetError<T>,
+  camposVisibles: CamposVisibles<T>,
+): unknown {
+  if (!esApiError(e) || e.codigo !== 'VALIDACION' || !e.campos) return e;
+  if (Object.keys(e.campos).length === 0) return e;
+  const noAplicados = aplicarErroresAlFormulario(e, setError, camposVisibles);
+  const claves = Object.keys(noAplicados);
+  if (claves.length === 0) return null;
+  const campos = Object.fromEntries(claves.map((c) => [c, e.campos?.[c] ?? []]));
+  return new ApiError({
+    status: e.status,
+    codigo: e.codigo,
+    mensaje: e.mensaje,
+    detalles: { ...e.detalles, campos },
+  });
 }

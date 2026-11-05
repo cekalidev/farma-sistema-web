@@ -1,13 +1,5 @@
 // Campo de formulario: etiqueta + control + error, enlazados por contexto (accesible)
-import {
-  createContext,
-  useContext,
-  useId,
-  type InputHTMLAttributes,
-  type ReactNode,
-  type SelectHTMLAttributes,
-  type TextareaHTMLAttributes,
-} from 'react';
+import { createContext, useContext, useId, type ComponentProps, type ReactNode } from 'react';
 
 interface ContextoCampo {
   id: string;
@@ -43,7 +35,7 @@ export function Field({ label, error, ayuda, className = '', children }: FieldPr
           </p>
         ) : null}
         {error ? (
-          <p id={ctx.errorId} className="text-xs font-medium text-red-700">
+          <p id={ctx.errorId} className="text-xs font-medium text-peligro-700">
             {error}
           </p>
         ) : null}
@@ -66,20 +58,18 @@ function useAriaCampo() {
 }
 
 const BASE_CONTROL =
-  'w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-900 shadow-xs placeholder:text-slate-400 disabled:bg-slate-100 disabled:text-slate-500 aria-[invalid=true]:border-red-600';
+  'w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-900 shadow-xs placeholder:text-slate-400 disabled:bg-slate-100 disabled:text-slate-500 aria-[invalid=true]:border-peligro-600';
 
-export function Input({ className = '', ...props }: InputHTMLAttributes<HTMLInputElement>) {
+/** Acepta `ref` como prop (React 19). */
+export function Input({ className = '', ...props }: ComponentProps<'input'>) {
   return <input {...useAriaCampo()} className={`${BASE_CONTROL} h-9 ${className}`} {...props} />;
 }
 
-export function Select({ className = '', ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+export function Select({ className = '', ...props }: ComponentProps<'select'>) {
   return <select {...useAriaCampo()} className={`${BASE_CONTROL} h-9 ${className}`} {...props} />;
 }
 
-export function Textarea({
-  className = '',
-  ...props
-}: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export function Textarea({ className = '', ...props }: ComponentProps<'textarea'>) {
   return (
     <textarea {...useAriaCampo()} className={`${BASE_CONTROL} py-2 ${className}`} {...props} />
   );

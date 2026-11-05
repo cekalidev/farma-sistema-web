@@ -1,23 +1,38 @@
-// Utilidades de fechas (zona local, formato es-CO)
+// Utilidades de fechas. "Hoy" es siempre el día calendario en Bogotá (como el backend),
+// sin importar la zona del navegador; las fechas `Y-m-d` se restan en UTC.
 
 const DIA_MS = 86_400_000;
+export const ZONA_HORARIA = 'America/Bogota';
 
-function aISO(d: Date): string {
-  const a = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const dia = String(d.getDate()).padStart(2, '0');
-  return `${a}-${m}-${dia}`;
+// en-CA formatea como `AAAA-MM-DD`
+const formatoDiaBogota = new Intl.DateTimeFormat('en-CA', {
+  timeZone: ZONA_HORARIA,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+/** Día calendario en Bogotá (`Y-m-d`) del instante `d`. */
+export function diaEnBogota(d: Date = new Date()): string {
+  return formatoDiaBogota.format(d);
 }
 
-/** Hoy en `Y-m-d` (hora local). */
+/** Hoy en `Y-m-d` (zona America/Bogota). */
 export function hoyISO(): string {
-  return aISO(new Date());
+  return diaEnBogota();
 }
 
-/** Fecha `Y-m-d` desplazada `dias` respecto a hoy. */
+/** `Y-m-d` → milisegundos UTC de ese día a medianoche. */
+function utcDeISO(fecha: string): number {
+  const [a, m, d] = fecha.slice(0, 10).split('-').map(Number);
+  return Date.UTC(a ?? 1970, (m ?? 1) - 1, d ?? 1);
+}
+
+const isoDeUtc = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+/** Fecha `Y-m-d` desplazada `dias` respecto al día (en Bogotá) de `base`. */
 export function fechaRelativa(dias: number, base: Date = new Date()): string {
-  const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + dias);
-  return aISO(d);
+  return isoDeUtc(utcDeISO(diaEnBogota(base)) + dias * DIA_MS);
 }
 
 function desdeISO(fecha: string): Date {
@@ -25,10 +40,26 @@ function desdeISO(fecha: string): Date {
   return new Date(a ?? 1970, (m ?? 1) - 1, d ?? 1);
 }
 
-/** Días desde hoy hasta `fecha` (negativo si ya pasó; 0 = vence hoy). */
-export function diasHastaVencer(fecha: string, hoy: Date = new Date()): number {
-  const base = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
-  return Math.round((desdeISO(fecha).getTime() - base.getTime()) / DIA_MS);
+/**
+ * Días desde hoy (Bogotá) hasta `fecha` (negativo si ya pasó; 0 = vence hoy).
+ * `hoy` puede ser un instante (`Date`) o un día ya calculado (`Y-m-d`).
+ */
+export function diasHastaVencer(fecha: string, hoy: Date | string = new Date()): number {
+  const base = typeof hoy === 'string' ? hoy : diaEnBogota(hoy);
+  return Math.round((utcDeISO(fecha) - utcDeISO(base)) / DIA_MS);
+}
+
+/** Lote vencido (no dispensable) si `fecha_vencimiento <= hoy` en Bogotá. */
+export function loteVencido(fechaVencimiento: string, hoy: Date | string = new Date()): boolean {
+  return diasHastaVencer(fechaVencimiento, hoy) <= 0;
+}
+
+/** Prescripción vigente por fecha si `hoy <= fecha_vencimiento` en Bogotá. */
+export function prescripcionVigentePorFecha(
+  fechaVencimiento: string,
+  hoy: Date | string = new Date(),
+): boolean {
+  return diasHastaVencer(fechaVencimiento, hoy) >= 0;
 }
 
 const formatoFecha = new Intl.DateTimeFormat('es-CO', {
@@ -37,6 +68,7 @@ const formatoFecha = new Intl.DateTimeFormat('es-CO', {
   year: 'numeric',
 });
 const formatoFechaHora = new Intl.DateTimeFormat('es-CO', {
+  timeZone: ZONA_HORARIA,
   day: '2-digit',
   month: '2-digit',
   year: 'numeric',
@@ -50,7 +82,7 @@ export function formatearFecha(fecha: string | null | undefined): string {
   return /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? formatoFecha.format(desdeISO(fecha)) : fecha;
 }
 
-/** Timestamp ISO 8601 → fecha y hora locales. */
+/** Timestamp ISO 8601 → fecha y hora en Bogotá. */
 export function formatearFechaHora(marca: string | null | undefined): string {
   if (!marca) return '—';
   const d = new Date(marca);
@@ -63,7 +95,10 @@ export const DIAS_POR_VENCER = 90;
 export type EstadoVencimiento = 'vencido' | 'por vencer' | 'vigente';
 
 /** Vencido si vence hoy o antes (no dispensable). */
-export function estadoVencimiento(fecha: string, hoy: Date = new Date()): EstadoVencimiento {
+export function estadoVencimiento(
+  fecha: string,
+  hoy: Date | string = new Date(),
+): EstadoVencimiento {
   const dias = diasHastaVencer(fecha, hoy);
   if (dias <= 0) return 'vencido';
   if (dias <= DIAS_POR_VENCER) return 'por vencer';

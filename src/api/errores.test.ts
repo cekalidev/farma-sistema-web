@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { ApiError } from './client';
-import { aplicarErroresAlFormulario, erroresDeCampos, mensajeDeError } from './errores';
+import {
+  aplicarErroresAlFormulario,
+  erroresDeCampos,
+  esResultadoIncierto,
+  manejarErrorDeFormulario,
+  mensajeDeError,
+  resumenErroresNoAplicados,
+} from './errores';
 
 const err = (codigo: string, detalles: Record<string, unknown> = {}, status = 422) =>
   new ApiError({ status, codigo, mensaje: 'x', detalles });
@@ -50,7 +57,7 @@ describe('mensajeDeError', () => {
     );
     expect(
       mensajeDeError(err('SEGREGACION_FUNCIONES', { accion: 'resolver_discrepancia' }, 403)),
-    ).toMatch(/no puede resolver sus discrepancias/);
+    ).toBe('Debe resolverla otro regente distinto de quien solicitó el traslado.');
   });
 
   it('TRANSICION_INVALIDA usa estado y acción', () => {
@@ -72,14 +79,67 @@ describe('mensajeDeError', () => {
       motivo: 'Debe tener al menos 10 caracteres.',
       bodega_id: 'El valor no es válido.',
     });
-    expect(mensajeDeError(e)).toContain('cantidad (ítem 1): Debe ser mayor o igual a 1.');
+    expect(mensajeDeError(e)).toContain('cantidad (ítem 1): Debe ser mayor o igual a 1;');
   });
 
-  it('aplica errores de campo en react-hook-form', () => {
+  it('aplica solo los campos visibles y devuelve el resto', () => {
     const setError = vi.fn();
-    const e = err('VALIDACION', { campos: { email: ['The email field is required.'] } });
-    expect(aplicarErroresAlFormulario(e, setError)).toBe(true);
+    const e = err('VALIDACION', {
+      campos: {
+        email: ['The email field is required.'],
+        bodega_id: ['The bodega id field is required.'],
+      },
+    });
+    const resto = aplicarErroresAlFormulario(e, setError, ['email']);
+    expect(setError).toHaveBeenCalledTimes(1);
     expect(setError).toHaveBeenCalledWith('email', { type: 'server', message: 'Es obligatorio.' });
+    expect(resto).toEqual({ bodega_id: 'Es obligatorio.' });
+    expect(resumenErroresNoAplicados(resto)).toBe('bodega: Es obligatorio.');
+    expect(resumenErroresNoAplicados({})).toBeNull();
+  });
+
+  it('acepta un mapeo y una función de campos', () => {
+    const setError = vi.fn();
+    const e = err('VALIDACION', {
+      campos: { 'lote.codigo': ['The lote.codigo field is required.'], cantidad: ['x'] },
+    });
+    expect(aplicarErroresAlFormulario(e, setError, { 'lote.codigo': 'codigo' })).toEqual({
+      cantidad: 'El valor no es válido.',
+    });
+    expect(setError).toHaveBeenCalledWith('codigo', expect.anything());
+    const setError2 = vi.fn();
+    expect(
+      aplicarErroresAlFormulario(e, setError2, (c) => (c === 'cantidad' ? 'cantidad' : null)),
+    ).toEqual({ 'lote.codigo': 'Es obligatorio.' });
+  });
+
+  it('manejarErrorDeFormulario: null si todo se pintó; si no, error solo con lo pendiente', () => {
+    const setError = vi.fn();
+    const todo = err('VALIDACION', { campos: { email: ['The email field is required.'] } });
+    expect(manejarErrorDeFormulario(todo, setError, ['email'])).toBeNull();
+    const parcial = err('VALIDACION', {
+      campos: { email: ['The email field is required.'], bodega_id: ['Required.'] },
+    });
+    const pendiente = manejarErrorDeFormulario(parcial, setError, ['email']);
+    expect(mensajeDeError(pendiente)).toBe('Revisa los datos: bodega: El valor no es válido.');
+    const otro = err('NO_AUTORIZADO', {}, 403);
+    expect(manejarErrorDeFormulario(otro, setError, ['email'])).toBe(otro);
+  });
+
+  it('no deja pasar mensajes desconocidos del backend (aunque tengan tildes)', () => {
+    const e = err('VALIDACION', { campos: { motivo: ['Paciente Ana Pérez ya tenía esto.'] } });
+    expect(erroresDeCampos(e)).toEqual({ motivo: 'El valor no es válido.' });
+    const raro = new ApiError({ status: 418, codigo: 'ALGO_NUEVO', mensaje: 'CC 9900000001' });
+    expect(mensajeDeError(raro)).not.toContain('9900000001');
+    expect(mensajeDeError(raro)).toContain('ALGO_NUEVO');
+  });
+
+  it('esResultadoIncierto: RED y 5xx', () => {
+    expect(esResultadoIncierto(err('RED', {}, 0))).toBe(true);
+    expect(esResultadoIncierto(err('ERROR_INTERNO', {}, 500))).toBe(true);
+    expect(esResultadoIncierto(err('HTTP_504', {}, 504))).toBe(true);
+    expect(esResultadoIncierto(err('STOCK_INSUFICIENTE', {}, 409))).toBe(false);
+    expect(esResultadoIncierto(new Error('x'))).toBe(false);
   });
 
   it('DEMASIADAS_SOLICITUDES con segundos, RED y desconocido', () => {

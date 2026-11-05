@@ -1,9 +1,9 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { http } from 'msw';
+import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vite-plus/test';
 import { server } from '../mocks/server';
-import { api, errorApi } from '../mocks/utilidades';
+import { api, errorApi, tokenMock } from '../mocks/utilidades';
 import { renderApp } from '../test/render';
 
 const enlacesNav = () =>
@@ -45,6 +45,14 @@ describe('navegación por rol', () => {
   });
 
   it('401 en una petición: limpia la sesión y avisa en el login', async () => {
+    server.use(http.get(api('/bodegas'), () => errorApi(401, 'NO_AUTENTICADO', 'No autenticado.')));
+    const { router } = renderApp({ rol: 'regente_farmacia' });
+    await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
+    expect(await screen.findByText(/Tu sesión expiró/)).toBeInTheDocument();
+    expect(sessionStorage.getItem('farma.token')).toBeNull();
+  });
+
+  it('Salir voluntario con 401 en el logout: va al login SIN aviso de expiración', async () => {
     server.use(
       http.post(api('/auth/logout'), () => errorApi(401, 'NO_AUTENTICADO', 'No autenticado.')),
     );
@@ -53,7 +61,35 @@ describe('navegación por rol', () => {
     await screen.findByRole('heading', { name: 'Dispensación' });
     await usuario.click(screen.getByRole('button', { name: 'Salir' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
-    expect(await screen.findByText(/Tu sesión expiró/)).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Ingresar' })).toBeInTheDocument();
+    expect(screen.queryByText(/Tu sesión expiró/)).not.toBeInTheDocument();
     expect(sessionStorage.getItem('farma.token')).toBeNull();
+  });
+});
+
+describe('arranque con token guardado (/auth/me)', () => {
+  it('token válido: entra sin pasar por el login', async () => {
+    const { router } = renderApp({ tokenGuardado: tokenMock('auxiliar@farma.test') });
+    expect(await screen.findByRole('heading', { name: 'Dispensación' })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/dispensacion');
+  });
+
+  it('401: borra el token y muestra el login', async () => {
+    const { router } = renderApp({ tokenGuardado: 'mock|desconocido@farma.test' });
+    expect(await screen.findByRole('button', { name: 'Ingresar' })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/login');
+    expect(sessionStorage.getItem('farma.token')).toBeNull();
+  });
+
+  it('error de red: avisa, conserva el token y permite reintentar', async () => {
+    server.use(http.get(api('/auth/me'), () => HttpResponse.error(), { once: true }));
+    const token = tokenMock('auxiliar@farma.test');
+    const usuario = userEvent.setup();
+    const { router } = renderApp({ tokenGuardado: token });
+    expect(await screen.findByText('No se pudo validar la sesión')).toBeInTheDocument();
+    expect(router.state.location.pathname).not.toBe('/login');
+    expect(sessionStorage.getItem('farma.token')).toBe(token);
+    await usuario.click(screen.getByRole('button', { name: 'Reintentar' }));
+    expect(await screen.findByRole('heading', { name: 'Dispensación' })).toBeInTheDocument();
   });
 });

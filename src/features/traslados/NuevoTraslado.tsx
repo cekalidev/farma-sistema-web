@@ -8,17 +8,17 @@ import {
   useWatch,
   type Control,
   type FieldErrors,
+  type Path,
   type UseFormRegister,
   type UseFormSetValue,
 } from 'react-hook-form';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import { esApiError } from '../../api/client';
 import { catalogosKeys, listarProductos } from '../../api/endpoints/catalogos';
 import { inventarioKeys, listarExistencias } from '../../api/endpoints/inventario';
 import { crearTraslado, trasladosKeys } from '../../api/endpoints/traslados';
-import { aplicarErroresAlFormulario } from '../../api/errores';
+import { manejarErrorDeFormulario } from '../../api/errores';
 import type { Bodega, Existencia, Producto } from '../../api/tipos';
 import { Button } from '../../components/ui/Button';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
@@ -27,6 +27,9 @@ import { useAccionUnica } from '../../components/ui/useAccionUnica';
 import { estadoVencimiento, formatearFecha } from '../../lib/fechas';
 
 const ITEMS_MAXIMO = 50;
+/** Claves del 422 que el formulario pinta; el resto va al banner. */
+const CAMPOS_VISIBLES =
+  /^(bodega_origen_id|bodega_destino_id|observaciones|items\.\d+\.(producto_id|lote_id|cantidad))$/;
 
 const esquemaItem = z.object({
   producto_id: z.string().min(1, 'Elige el producto.'),
@@ -280,9 +283,10 @@ export function NuevoTraslado({ bodegas, onCancelar }: Props) {
       toast.success(`Traslado #${t.id} creado en borrador.`);
       void navigate(`/traslados/${t.id}`);
     } catch (e) {
-      const conCampos =
-        esApiError(e) && e.codigo === 'VALIDACION' && aplicarErroresAlFormulario(e, setErrorCampo);
-      if (!conCampos) setError(e);
+      const pendiente = manejarErrorDeFormulario(e, setErrorCampo, (c) =>
+        CAMPOS_VISIBLES.test(c) ? (c as Path<Formulario>) : null,
+      );
+      if (pendiente) setError(pendiente);
     }
   });
 

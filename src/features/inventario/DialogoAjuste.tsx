@@ -9,7 +9,7 @@ import { esApiError } from '../../api/client';
 import { alertasKeys } from '../../api/endpoints/alertas';
 import { inventarioKeys, registrarAjuste } from '../../api/endpoints/inventario';
 import { kardexKeys } from '../../api/endpoints/kardex';
-import { aplicarErroresAlFormulario } from '../../api/errores';
+import { manejarErrorDeFormulario } from '../../api/errores';
 import type { Existencia } from '../../api/tipos';
 import { Button } from '../../components/ui/Button';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
@@ -86,9 +86,8 @@ export function DialogoAjuste({ existencia, onCerrar }: Props) {
       if (esApiError(e) && e.codigo === 'STOCK_INSUFICIENTE') {
         void queryClient.invalidateQueries({ queryKey: inventarioKeys.todo });
       }
-      const conCampos =
-        esApiError(e) && e.codigo === 'VALIDACION' && aplicarErroresAlFormulario(e, setError);
-      if (!conCampos) setErrorServidor(e);
+      const pendiente = manejarErrorDeFormulario(e, setError, ['cantidad', 'motivo']);
+      if (pendiente) setErrorServidor(pendiente);
     }
   });
 

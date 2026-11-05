@@ -26,7 +26,8 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>{children}</AuthProvider>
-      <Toaster position="top-right" richColors closeButton />
+      {/* Abajo a la derecha: no tapa Salir ni la navegación */}
+      <Toaster position="bottom-right" richColors closeButton />
     </QueryClientProvider>
   );
 }

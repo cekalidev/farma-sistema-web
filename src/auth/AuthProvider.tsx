@@ -1,6 +1,6 @@
 // Sesión: token en sessionStorage, usuario desde /auth/me
 import { useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { alExpirarSesion, establecerToken, esApiError } from '../api/client';
 import { login, logout, obtenerUsuarioActual } from '../api/endpoints/auth';
 import type { Usuario } from '../api/tipos';
@@ -42,8 +42,10 @@ export function AuthProvider({ children, usuarioInicial }: Props) {
     return token !== null;
   });
   const [aviso, setAviso] = useState<string | null>(null);
+  const [errorSesion, setErrorSesion] = useState<unknown>(null);
+  const cerrandoRef = useRef(false);
 
-  // Valida el token guardado al montar
+  // Valida el token guardado al montar (y en cada reintento)
   useEffect(() => {
     if (!cargando) return;
     const control = new AbortController();
@@ -51,7 +53,9 @@ export function AuthProvider({ children, usuarioInicial }: Props) {
       .then((u) => setUsuario(u))
       .catch((e: unknown) => {
         if (control.signal.aborted) return;
+        // Solo un 401 invalida el token; RED/5xx no: se ofrece reintentar
         if (esApiError(e) && e.status === 401) guardarToken(null);
+        else setErrorSesion(e);
       })
       .finally(() => {
         if (!control.signal.aborted) setCargando(false);
@@ -65,7 +69,8 @@ export function AuthProvider({ children, usuarioInicial }: Props) {
       alExpirarSesion(() => {
         guardarToken(null);
         setUsuario(null);
-        setAviso('Tu sesión expiró. Inicia sesión de nuevo.');
+        // Un 401 de una petición en vuelo durante el "Salir" voluntario no es una expiración
+        if (!cerrandoRef.current) setAviso('Tu sesión expiró. Inicia sesión de nuevo.');
         queryClient.clear();
       }),
     [queryClient],
@@ -75,24 +80,42 @@ export function AuthProvider({ children, usuarioInicial }: Props) {
     const r = await login({ email, password });
     guardarToken(r.token);
     setAviso(null);
+    setErrorSesion(null);
     setUsuario(r.usuario);
     return r.usuario;
   }, []);
 
   const cerrarSesion = useCallback(async () => {
+    cerrandoRef.current = true;
     try {
       await logout();
     } catch {
-      // aunque falle, la sesión local se cierra
+      // aunque falle (incluido un 401), la sesión local se cierra sin aviso de expiración
+    } finally {
+      cerrandoRef.current = false;
     }
     guardarToken(null);
+    setAviso(null);
     setUsuario(null);
     queryClient.clear();
   }, [queryClient]);
 
+  const reintentarSesion = useCallback(() => {
+    setErrorSesion(null);
+    setCargando(true);
+  }, []);
+
   const valor = useMemo<ValorAuth>(
-    () => ({ usuario, cargando, aviso, iniciarSesion, cerrarSesion }),
-    [usuario, cargando, aviso, iniciarSesion, cerrarSesion],
+    () => ({
+      usuario,
+      cargando,
+      aviso,
+      errorSesion,
+      iniciarSesion,
+      cerrarSesion,
+      reintentarSesion,
+    }),
+    [usuario, cargando, aviso, errorSesion, iniciarSesion, cerrarSesion, reintentarSesion],
   );
 
   return <ContextoAuth value={valor}>{children}</ContextoAuth>;

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { mensajeDeError } from '../../api/errores';
 import { Button } from './Button';
 
@@ -5,19 +6,25 @@ interface Props {
   error: unknown;
   /** Título opcional sobre el mensaje. */
   titulo?: string;
+  /**
+   * Detalle adicional bajo el mensaje, p. ej. los errores de campo que el formulario no
+   * pinta: `extra={resumenErroresNoAplicados(noAplicados)}`.
+   */
+  extra?: ReactNode;
   onReintentar?: () => void;
 }
 
-export function ErrorBanner({ error, titulo, onReintentar }: Props) {
+export function ErrorBanner({ error, titulo, extra, onReintentar }: Props) {
   if (!error) return null;
   return (
     <div
       role="alert"
-      className="flex items-start justify-between gap-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900"
+      className="flex items-start justify-between gap-3 rounded-md border border-peligro-300 bg-peligro-50 px-3 py-2 text-sm text-peligro-900"
     >
-      <div>
+      <div className="min-w-0">
         {titulo ? <p className="font-semibold">{titulo}</p> : null}
         <p>{mensajeDeError(error)}</p>
+        {extra ? <div className="mt-1">{extra}</div> : null}
       </div>
       {onReintentar ? (
         <Button variante="secundario" tamano="sm" onClick={onReintentar}>
