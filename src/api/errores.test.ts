@@ -126,6 +126,19 @@ describe('mensajeDeError', () => {
     expect(manejarErrorDeFormulario(otro, setError, ['email'])).toBe(otro);
   });
 
+  it('manejarErrorDeFormulario conserva el código de seguimiento', () => {
+    const e = new ApiError({
+      status: 422,
+      codigo: 'VALIDACION',
+      mensaje: 'x',
+      detalles: { campos: { email: ['Required.'], bodega_id: ['Required.'] } },
+      correlacionId: 'corr-123',
+    });
+    const pendiente = manejarErrorDeFormulario(e, vi.fn(), ['email']);
+    expect(pendiente).toBeInstanceOf(ApiError);
+    expect(pendiente).toMatchObject({ status: 422, correlacionId: 'corr-123' });
+  });
+
   it('no deja pasar mensajes desconocidos del backend (aunque tengan tildes)', () => {
     const e = err('VALIDACION', { campos: { motivo: ['Paciente Ana Pérez ya tenía esto.'] } });
     expect(erroresDeCampos(e)).toEqual({ motivo: 'El valor no es válido.' });

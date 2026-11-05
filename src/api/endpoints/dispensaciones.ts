@@ -78,8 +78,8 @@ export type DispensacionListado = Dispensacion & {
 };
 
 /**
- * Listado paginado (`created_at` ascendente, desempate por id). Llega en el próximo commit
- * del backend: hasta entonces responde 404/405 y la UI debe degradar (ver PanelPendientes).
+ * Listado paginado (`created_at` ascendente, desempate por id). Anunciado en el contrato pero
+ * aún no publicado: si responde 404/405, la UI degrada (ver PanelPendientes).
  */
 export function listarDispensaciones(
   filtros: FiltrosDispensaciones = {},

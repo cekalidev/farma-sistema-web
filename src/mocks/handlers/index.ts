@@ -25,7 +25,11 @@ const MODULOS = [
 
 /** Endpoints que el backend tiene (simulados con su misma forma). */
 export const handlersReales: HttpHandler[] = MODULOS.flatMap((m) => m.handlersReales);
-/** Endpoints que el backend NO tiene (`GET /dispensaciones?estado=`, `/alertas/*`): solo demo. */
+/**
+ * Endpoints anunciados en el contrato pero aún no publicados en el backend: hoy solo
+ * `GET /dispensaciones` (listado). Las alertas (`/alertas/*`) ya existen (v0.12.0) y van en
+ * `handlersReales`. Con backend real, la UI degrada ante 404/405.
+ */
 export const handlersFaltantes: HttpHandler[] = MODULOS.flatMap((m) => m.handlersFaltantes);
 
 /** Lista completa. Los faltantes van primero: rutas específicas antes que las genéricas. */

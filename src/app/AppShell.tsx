@@ -13,7 +13,8 @@ const ENLACES: { seccion: Seccion; ruta: string; texto: string }[] = [
 ];
 
 const claseEnlace = ({ isActive }: { isActive: boolean }) =>
-  `shrink-0 rounded px-2.5 py-1.5 text-sm font-medium ${
+  // Contorno de foco sin separación: cabe en el relleno del nav (que recorta por el scroll)
+  `shrink-0 rounded px-2.5 py-1.5 text-sm font-medium focus-visible:outline-offset-0 ${
     isActive ? 'bg-marca-700 text-white' : 'text-slate-700 hover:bg-slate-200'
   }`;
 
@@ -33,7 +34,7 @@ export function AppShell() {
           </span>
           <nav
             aria-label="Principal"
-            className="order-last -mx-1 w-[calc(100%+0.5rem)] overflow-x-auto px-1 py-0.5 [scrollbar-width:thin] sm:order-none sm:mx-0 sm:w-auto sm:flex-1 sm:px-0"
+            className="order-last -mx-1 w-[calc(100%+0.5rem)] overflow-x-auto px-1 py-0.5 [scrollbar-width:thin] sm:order-none sm:w-auto sm:flex-1"
           >
             <div className="flex gap-1">
               {enlaces.map((e) => (

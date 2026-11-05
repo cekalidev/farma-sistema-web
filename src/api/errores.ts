@@ -332,5 +332,6 @@ export function manejarErrorDeFormulario<T extends FieldValues>(
     codigo: e.codigo,
     mensaje: e.mensaje,
     detalles: { ...e.detalles, campos },
+    correlacionId: e.correlacionId,
   });
 }

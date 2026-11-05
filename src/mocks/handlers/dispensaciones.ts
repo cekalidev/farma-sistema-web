@@ -1,5 +1,6 @@
 // Dispensaciones. Reales (fieles al backend): previsualizar, crear (idempotente), autorizar,
-// rechazar y detalle. Faltante: listado (llega en el próximo commit del backend; forma prevista).
+// rechazar y detalle. Faltante: listado `GET /dispensaciones` (anunciado en el contrato, aún no
+// publicado; misma forma: `dispensado_por {id, nombre}` y sin paciente).
 import { http, HttpResponse, type HttpHandler } from 'msw';
 import type {
   Dispensacion,
@@ -489,7 +490,7 @@ export const handlersReales: HttpHandler[] = [
 ];
 
 export const handlersFaltantes: HttpHandler[] = [
-  // Forma prevista: paginado, created_at ascendente (desempate id), sin paciente
+  // Forma anunciada: paginado, created_at ascendente (desempate id), sin paciente
   http.get(api('/dispensaciones'), ({ request }) => {
     const u = autorizar(request);
     if (u instanceof Response) return u;

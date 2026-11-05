@@ -8,7 +8,7 @@ export const catalogosKeys = {
   productos: (params: ParamsPaginacion = {}) => ['catalogos', 'productos', params] as const,
 };
 
-/** Paginado fijo de 25; solo acepta `page`. */
+/** Paginado de 25 (por defecto del contrato); orden por nombre e id. */
 export function listarBodegas(page = 1, signal?: AbortSignal): Promise<Paginado<Bodega>> {
   return peticion('/bodegas', { query: { page }, ...(signal ? { signal } : {}) });
 }

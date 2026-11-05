@@ -3,16 +3,8 @@
 // stock añaden con `registrarMovimiento` (utilidades.ts).
 import { http, HttpResponse, type HttpHandler } from 'msw';
 import { fechaRelativa } from '../../lib/fechas';
-import { MOVIMIENTOS, reiniciarDatos } from '../datos';
+import { MOVIMIENTOS } from '../datos';
 import { api, autorizar, errorApi, filtroNum, paginar } from '../utilidades';
-
-/**
- * Compatibilidad: el kardex ya no tiene estado propio. Restaura la semilla común
- * (incluye `MOVIMIENTOS`), igual que `reiniciarDatos`.
- */
-export function reiniciarKardex(): void {
-  reiniciarDatos();
-}
 
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 

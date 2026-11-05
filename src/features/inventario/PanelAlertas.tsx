@@ -13,7 +13,7 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { DIAS_POR_VENCER, formatearFecha } from '../../lib/fechas';
 import { textoDias } from './estado';
 
-/** 404/405: el servidor no tiene el endpoint (versión anterior): aviso discreto, no error. */
+/** 404/405: backend anterior a v0.12.0, sin alertas: aviso discreto, no error. */
 const noDisponible = (e: unknown) => esApiError(e) && (e.status === 404 || e.status === 405);
 
 const MAX_VISIBLES = 5;

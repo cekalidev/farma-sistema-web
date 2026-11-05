@@ -1,12 +1,11 @@
 // Restaura TODO el estado mutable de los mocks (se llama en afterEach desde setup.ts)
 import { reiniciarDatos } from '../mocks/datos';
 import { reiniciarDispensaciones } from '../mocks/handlers/dispensaciones';
-import { reiniciarKardex } from '../mocks/handlers/kardex';
 
 export function reiniciarMocks(): void {
-  // Arrays de datos.ts: lotes, existencias, prescripciones, dispensaciones, traslados, MOVIMIENTOS
+  // Arrays de datos.ts: lotes, existencias, prescripciones, dispensaciones, traslados y
+  // MOVIMIENTOS (el kardex simulado lee ese array compartido)
   reiniciarDatos();
-  // Estado privado de handlers: kardex propio (hasta que use MOVIMIENTOS) e idempotencia
-  reiniciarKardex();
+  // Estado privado de handlers: idempotencia de dispensaciones
   reiniciarDispensaciones();
 }
