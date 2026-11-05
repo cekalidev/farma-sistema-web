@@ -213,7 +213,7 @@ describe('mock de dispensaciones', () => {
     await expect(obtenerDispensacion(999)).rejects.toMatchObject({ status: 404 });
   });
 
-  it('listado (forma prevista): dispensado_por, sin paciente, más antigua primero', async () => {
+  it('listado (contrato v0.13.0): dispensado_por, sin paciente ni detalles, más antigua primero', async () => {
     establecerToken(tokenMock('regente@farma.test'));
     await crearDispensacion(
       {
@@ -230,8 +230,20 @@ describe('mock de dispensaciones', () => {
       [1, 'Auxiliar Demo'],
       [2, 'Regente Demo'],
     ]);
-    expect(r.data.every((x) => !('paciente' in x))).toBe(true);
+    expect(r.data.every((x) => !('paciente' in x) && !('detalles' in x))).toBe(true);
+    expect(r.data.every((x) => x.created_at.endsWith('-05:00'))).toBe(true);
+    // Bodega inexistente: 200 con la lista vacía; `bodega_id` vacío: 422
+    const vacia = await listarDispensaciones({ bodega_id: 999 });
+    expect(vacia.data).toEqual([]);
+    expect(vacia.meta.total).toBe(0);
+    // El cliente omite los valores vacíos: se pide la URL tal cual
+    await expect(peticion('/dispensaciones?bodega_id=')).rejects.toMatchObject({
+      status: 422,
+      codigo: 'VALIDACION',
+    });
     establecerToken(tokenMock('medico@farma.test'));
     await expect(listarDispensaciones()).rejects.toMatchObject({ status: 403 });
+    // 403 antes que la validación
+    await expect(listarDispensaciones({ bodega_id: 0 })).rejects.toMatchObject({ status: 403 });
   });
 });

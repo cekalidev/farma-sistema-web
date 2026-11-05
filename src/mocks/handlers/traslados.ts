@@ -9,7 +9,7 @@ import type {
   TrasladoItem,
   Usuario,
 } from '../../api/tipos';
-import { diasHastaVencer } from '../../lib/fechas';
+import { diasHastaVencer, marcaEnBogota } from '../../lib/fechas';
 import { BODEGAS, EXISTENCIAS, LOTES, PRODUCTOS, reiniciarDatos, TRASLADOS } from '../datos';
 import { api, autorizar, errorApi, filtroNum, paginar, registrarMovimiento } from '../utilidades';
 
@@ -38,7 +38,7 @@ const ACCIONES_POR_ESTADO: Record<EstadoTraslado, Accion[]> = {
   ANULADO: [],
 };
 
-const ahora = () => new Date().toISOString();
+const ahora = () => marcaEnBogota();
 const esEntero = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 const siguienteId = (ids: number[]) => ids.reduce((m, x) => Math.max(m, x), 0) + 1;
 

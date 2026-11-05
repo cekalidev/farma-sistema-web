@@ -13,7 +13,7 @@ import type {
   Traslado,
   Usuario,
 } from '../api/tipos';
-import { diasHastaVencer, fechaRelativa } from '../lib/fechas';
+import { diasHastaVencer, fechaRelativa, marcaEnBogota } from '../lib/fechas';
 
 export interface Lote extends LoteResumen {
   producto_id: number;
@@ -304,7 +304,7 @@ export const PRESCRIPCIONES: Prescripcion[] = [
   ]),
 ];
 
-const hace = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+const hace = (min: number) => marcaEnBogota(new Date(Date.now() - min * 60_000));
 
 export const DISPENSACIONES: Dispensacion[] = [
   {
@@ -434,7 +434,7 @@ function sembrarMovimientos(): MovimientoKardex[] {
       usuario_id: 2,
       usuario: { id: 2, nombre: regente?.nombre ?? 'Usuario 2' },
       documento: null,
-      created_at: fecha.toISOString(),
+      created_at: marcaEnBogota(fecha),
     };
   });
 }

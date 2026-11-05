@@ -8,6 +8,7 @@ import type {
   TipoMovimiento,
   Usuario,
 } from '../api/tipos';
+import { marcaEnBogota } from '../lib/fechas';
 import { MOVIMIENTOS, USUARIOS } from './datos';
 
 /** Patrón de URL que coincide con cualquier origen: `api('/bodegas')` → `* /api/v1/bodegas`. */
@@ -128,7 +129,7 @@ export function registrarMovimiento(m: NuevoMovimiento): MovimientoKardex {
     usuario_id: m.usuarioId,
     usuario: { id: m.usuarioId, nombre: u?.nombre ?? `Usuario ${m.usuarioId}` },
     documento: m.documento ?? null,
-    created_at: m.createdAt ?? new Date().toISOString(),
+    created_at: m.createdAt ?? marcaEnBogota(),
   };
   MOVIMIENTOS.push(mov);
   return mov;

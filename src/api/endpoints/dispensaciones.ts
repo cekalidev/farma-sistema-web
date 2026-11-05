@@ -72,14 +72,17 @@ export async function rechazarDispensacion(id: number, motivo: string): Promise<
   return r.data;
 }
 
-/** Fila del listado: el recurso más quien dispensó y SIN paciente (solo `paciente_id`). */
-export type DispensacionListado = Dispensacion & {
+/**
+ * Fila del listado (contrato v0.13.0): el recurso más quien dispensó, sin `paciente` (solo
+ * `paciente_id`) ni `detalles`; ambos solo llegan en el detalle y al autorizar.
+ */
+export type DispensacionListado = Omit<Dispensacion, 'detalles' | 'paciente'> & {
   dispensado_por?: { id: number; nombre: string };
 };
 
 /**
- * Listado paginado (`created_at` ascendente, desempate por id). Anunciado en el contrato pero
- * aún no publicado: si responde 404/405, la UI degrada (ver PanelPendientes).
+ * Listado paginado (contrato v0.13.0: `created_at` ascendente, desempate por id). Si el servidor
+ * responde 404/405, la UI degrada (ver PanelPendientes).
  */
 export function listarDispensaciones(
   filtros: FiltrosDispensaciones = {},

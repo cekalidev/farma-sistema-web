@@ -167,7 +167,7 @@ El hook `pre-commit` ejecuta `vp staged`: formato y Oxlint sobre los archivos pr
 
 ## Supuestos
 
-- **Dispensaciones pendientes.** El backend anunció `GET /dispensaciones` (contrato v0.13.0: filas con `dispensado_por {id, nombre}` y sin paciente), pero aún no lo ha publicado. El panel del regente lo consume si existe; si responde 404 o 405, degrada a “Abrir dispensación #” y recuerda como accesos rápidos las pendientes creadas en la sesión. La demo (`VITE_API_MOCKS=todo`) simula el listado con la forma anunciada.
+- **Dispensaciones pendientes.** El backend anunció `GET /dispensaciones` (contrato v0.13.0: filas con `dispensado_por {id, nombre}`, sin paciente ni detalles), pero aún no lo ha publicado. El panel del regente lo consume si existe; si responde 404 o 405, degrada a “Abrir dispensación #” y recuerda como accesos rápidos las pendientes creadas en la sesión. La demo (`VITE_API_MOCKS=todo`) simula el listado con la forma del contrato v0.13.0.
 - **Alertas.** Se construyeron cuando el contrato las marcaba “en revisión”; se ajustan a §4.8 del contrato (v0.12.0), que ya las cierra. Con un backend anterior (404 o 405), el panel muestra un aviso discreto en vez de un error.
 - **Autorización de control especial.** El segundo regente autoriza desde su propia sesión. La UI no pide credenciales de otro usuario en el momento.
 - **Nombres de usuario.** En traslados la API solo entrega ids, así que se muestran como “Usuario #id” (o “Tú” si es el usuario actual). El listado de pendientes usa `dispensado_por.nombre` cuando viene.
@@ -185,6 +185,8 @@ El hook `pre-commit` ejecuta `vp staged`: formato y Oxlint sobre los archivos pr
 ## Versionado
 
 SemVer con tags anotados: `v0.1.0` (base) … `v0.6.0` (correcciones del núcleo), `v0.7.0` (correcciones de pantallas) y `v1.0.0` para la entrega. Un commit por funcionalidad, con mensajes del tipo `feat(traslados): …`, `build: …` o `fix: …`.
+
+- `v1.0.1`: listado de pendientes alineado con el contrato v0.13.0.
 
 ## Más documentación
 

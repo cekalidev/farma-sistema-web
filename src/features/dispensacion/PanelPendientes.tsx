@@ -1,5 +1,5 @@
 // Pendientes de autorización (control especial): solo regentes con dispensacion.autorizar.
-// El listado aún no está publicado en el backend: ante 404/405 se abre una por su número.
+// Listado del contrato v0.13.0 (sin paciente ni detalles); ante 404/405 se abre una por su número.
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
@@ -12,7 +12,7 @@ import {
   type DispensacionListado,
 } from '../../api/endpoints/dispensaciones';
 import { invalidarStock } from '../../api/invalidaciones';
-import type { Dispensacion, FiltrosDispensaciones, Usuario } from '../../api/tipos';
+import type { Dispensacion, FiltrosDispensaciones, Paciente, Usuario } from '../../api/tipos';
 import { Badge, EstadoBadge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Cargando } from '../../components/ui/Cargando';
@@ -62,7 +62,7 @@ export function PanelPendientes({ usuario, bodegaId, recientes, onOlvidar }: Pro
     enabled: degradado && abiertaId !== null,
   });
 
-  const [rechazando, setRechazando] = useState<Dispensacion | null>(null);
+  const [rechazando, setRechazando] = useState<DispensacionListado | null>(null);
   const [autorizada, setAutorizada] = useState<Dispensacion | null>(null);
 
   const resuelta = (id: number) => {
@@ -78,10 +78,12 @@ export function PanelPendientes({ usuario, bodegaId, recientes, onOlvidar }: Pro
   const filas = consulta.data?.data ?? [];
   const total = consulta.data?.meta.total;
 
-  const tarjeta = (d: DispensacionListado) => (
+  // El paciente solo llega en el detalle (modo degradado), nunca en las filas del listado
+  const tarjeta = (d: DispensacionListado, paciente?: Paciente) => (
     <TarjetaPendiente
       key={d.id}
       dispensacion={d}
+      paciente={paciente}
       usuario={usuario}
       onAutorizada={(r) => {
         setAutorizada(r);
@@ -141,7 +143,7 @@ export function PanelPendientes({ usuario, bodegaId, recientes, onOlvidar }: Pro
           ) : detalle.isError ? (
             <ErrorBanner error={detalle.error} onReintentar={() => void detalle.refetch()} />
           ) : (
-            <ul>{tarjeta(detalle.data)}</ul>
+            <ul>{tarjeta(detalle.data, detalle.data.paciente)}</ul>
           )}
         </>
       ) : consulta.isError ? (
@@ -149,7 +151,7 @@ export function PanelPendientes({ usuario, bodegaId, recientes, onOlvidar }: Pro
       ) : filas.length === 0 ? (
         <p className="text-sm text-slate-500">No hay dispensaciones pendientes de autorización.</p>
       ) : (
-        <ul className="divide-y divide-slate-100">{filas.map(tarjeta)}</ul>
+        <ul className="divide-y divide-slate-100">{filas.map((d) => tarjeta(d))}</ul>
       )}
 
       <DialogoMotivo
@@ -235,11 +237,14 @@ function AbrirDispensacion({
 
 function TarjetaPendiente({
   dispensacion: d,
+  paciente,
   usuario,
   onAutorizada,
   onRechazar,
 }: {
   dispensacion: DispensacionListado;
+  /** Solo con el detalle (`GET /dispensaciones/{id}`). */
+  paciente?: Paciente | undefined;
   usuario: Usuario;
   onAutorizada: (d: Dispensacion) => void;
   onRechazar: () => void;
@@ -264,7 +269,7 @@ function TarjetaPendiente({
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-semibold">#{d.id}</span>
         {pendiente ? null : <EstadoBadge estado={d.estado} />}
-        {d.paciente?.enmascarado ? <Badge tono="ambar">Datos enmascarados</Badge> : null}
+        {paciente?.enmascarado ? <Badge tono="ambar">Datos enmascarados</Badge> : null}
       </div>
       {/* Primero lo que se autoriza */}
       <ul className="text-sm text-slate-800">
@@ -279,11 +284,11 @@ function TarjetaPendiente({
           </li>
         ))}
       </ul>
-      {d.paciente ? (
+      {paciente ? (
         <p className="text-sm text-slate-700">
-          Paciente: <span className="font-medium">{nombreCompleto(d.paciente)}</span>{' '}
+          Paciente: <span className="font-medium">{nombreCompleto(paciente)}</span>{' '}
           <span className="font-mono text-slate-600">
-            {d.paciente.tipo_documento} {d.paciente.numero_documento}
+            {paciente.tipo_documento} {paciente.numero_documento}
           </span>
         </p>
       ) : null}

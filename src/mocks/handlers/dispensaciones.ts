@@ -1,7 +1,8 @@
 // Dispensaciones. Reales (fieles al backend): previsualizar, crear (idempotente), autorizar,
-// rechazar y detalle. Faltante: listado `GET /dispensaciones` (anunciado en el contrato, aún no
-// publicado; misma forma: `dispensado_por {id, nombre}` y sin paciente).
+// rechazar y detalle. Faltante: listado `GET /dispensaciones` (contrato v0.13.0: filas con
+// `dispensado_por {id, nombre}`, sin `paciente` ni `detalles`).
 import { http, HttpResponse, type HttpHandler } from 'msw';
+import type { DispensacionListado } from '../../api/endpoints/dispensaciones';
 import type {
   Dispensacion,
   DispensacionDetalle,
@@ -13,7 +14,7 @@ import type {
   SolicitudDispensacion,
   Usuario,
 } from '../../api/tipos';
-import { diasHastaVencer, hoyISO } from '../../lib/fechas';
+import { diasHastaVencer, hoyISO, marcaEnBogota } from '../../lib/fechas';
 import {
   BODEGAS,
   DISPENSACIONES,
@@ -308,13 +309,24 @@ const ESTADOS: EstadoDispensacion[] = ['CONFIRMADA', 'PENDIENTE_AUTORIZACION', '
 const prohibido = () =>
   errorApi(403, 'NO_AUTORIZADO', 'No tiene permiso para realizar esta acción.');
 
-/** Fila del listado: el recurso + `dispensado_por`, sin datos del paciente. */
-function filaListado(d: Dispensacion) {
-  // DISPENSACIONES nunca guarda `paciente` (solo lo añade el detalle)
+/** Fila del listado (contrato v0.13.0): el recurso + `dispensado_por`, sin `paciente` ni `detalles`. */
+function filaListado(d: Dispensacion): DispensacionListado {
   const creador = USUARIOS.find((x) => x.id === d.dispensado_por_id);
   return {
-    ...d,
+    id: d.id,
+    estado: d.estado,
+    paciente_id: d.paciente_id,
+    prescripcion_id: d.prescripcion_id,
+    bodega_id: d.bodega_id,
+    dispensado_por_id: d.dispensado_por_id,
     dispensado_por: { id: d.dispensado_por_id, nombre: creador?.nombre ?? '' },
+    autorizado_por_id: d.autorizado_por_id,
+    autorizado_en: d.autorizado_en,
+    rechazado_por_id: d.rechazado_por_id,
+    rechazado_en: d.rechazado_en,
+    motivo_rechazo: d.motivo_rechazo,
+    items: d.items,
+    created_at: d.created_at,
   };
 }
 
@@ -411,7 +423,7 @@ export const handlersReales: HttpHandler[] = [
         cantidad,
       })),
       detalles: [],
-      created_at: new Date().toISOString(),
+      created_at: marcaEnBogota(),
     };
     if (!requiereAutorizacion) d.detalles = descontar(d, asignacion, u);
     DISPENSACIONES.push(d);
@@ -454,7 +466,7 @@ export const handlersReales: HttpHandler[] = [
     d.detalles = descontar(d, asignacion, u);
     d.estado = 'CONFIRMADA';
     d.autorizado_por_id = u.id;
-    d.autorizado_en = new Date().toISOString();
+    d.autorizado_en = marcaEnBogota();
     return HttpResponse.json({ data: d });
   }),
 
@@ -472,7 +484,7 @@ export const handlersReales: HttpHandler[] = [
     }
     d.estado = 'RECHAZADA';
     d.rechazado_por_id = u.id;
-    d.rechazado_en = new Date().toISOString();
+    d.rechazado_en = marcaEnBogota();
     d.motivo_rechazo = motivo;
     return HttpResponse.json({ data: d });
   }),
@@ -490,21 +502,27 @@ export const handlersReales: HttpHandler[] = [
 ];
 
 export const handlersFaltantes: HttpHandler[] = [
-  // Forma anunciada: paginado, created_at ascendente (desempate id), sin paciente
+  // Contrato v0.13.0: paginado, created_at ascendente (desempate id), sin paciente ni detalles.
+  // Errores 401 → 403 (antes que la validación) → 422; vacío es 422; bodega inexistente, 200 vacío.
   http.get(api('/dispensaciones'), ({ request }) => {
     const u = autorizar(request);
     if (u instanceof Response) return u;
     if (!ROLES_CONSULTA.includes(u.rol)) return prohibido();
     const q = new URL(request.url).searchParams;
     const estado = q.get('estado');
+    const bodegaCruda = q.get('bodega_id');
     const bodega = filtroNum(request, 'bodega_id');
     const campos: Record<string, string[]> = {};
-    if (estado && !ESTADOS.includes(estado as EstadoDispensacion))
+    if (estado !== null && !ESTADOS.includes(estado as EstadoDispensacion))
       campos.estado = ['The selected estado is invalid.'];
-    if (bodega !== undefined && !esId(bodega)) campos.bodega_id = ['The field must be an integer.'];
+    if (bodegaCruda !== null && (bodega === undefined || !esId(bodega)))
+      campos.bodega_id = ['The bodega id field must be an integer.'];
     const porPagina = q.get('por_pagina');
     if (porPagina !== null && !/^(100|[1-9]\d?)$/.test(porPagina))
       campos.por_pagina = ['The por pagina field must be between 1 and 100.'];
+    const pagina = q.get('page');
+    if (pagina !== null && !/^(1000000|[1-9]\d{0,5})$/.test(pagina))
+      campos.page = ['The page field must be between 1 and 1000000.'];
     if (Object.keys(campos).length) return validacion(campos);
     const filas = DISPENSACIONES.filter(
       (d) => (!estado || d.estado === estado) && (bodega === undefined || d.bodega_id === bodega),

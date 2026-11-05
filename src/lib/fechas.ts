@@ -17,6 +17,11 @@ export function diaEnBogota(d: Date = new Date()): string {
   return formatoDiaBogota.format(d);
 }
 
+/** Instante `d` como marca de tiempo de Bogotá (UTC-5 fijo, sin horario de verano): `…T10:01:00-05:00`. */
+export function marcaEnBogota(d: Date = new Date()): string {
+  return `${new Date(d.getTime() - 5 * 3_600_000).toISOString().slice(0, 19)}-05:00`;
+}
+
 /** Hoy en `Y-m-d` (zona America/Bogota). */
 export function hoyISO(): string {
   return diaEnBogota();
